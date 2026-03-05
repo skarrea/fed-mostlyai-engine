@@ -38,7 +38,8 @@ def train(
     workspace_dir: str | Path = "engine-ws",
     update_progress: ProgressCallback | None = None,
     upload_model_data_callback: Callable | None = None,
-) -> None:
+    federated_epochs: int | None = None,
+) -> dict | None:
     """
     Trains a model with optional early stopping and differential privacy.
 
@@ -60,13 +61,17 @@ def train(
         workspace_dir: Directory path for workspace. Training outputs are stored in ModelStore subdirectory.
         update_progress: Callback function to report training progress.
         upload_model_data_callback: Callback function to upload model data during training.
+        federated_epochs: If specified, train for exactly this number of epochs and return model weights. Overrides max_epochs.
+
+    Returns:
+        dict | None: Model weights as a dictionary if federated_epochs is specified, otherwise None.
     """
     model_type = resolve_model_type(workspace_dir)
     if model_type == ModelType.tabular:
         from mostlyai.engine._tabular.training import train as train_tabular
 
         args = inspect.signature(train_tabular).parameters
-        train_tabular(
+        result = train_tabular(
             model=model if model else args["model"].default,
             workspace_dir=workspace_dir,
             max_training_time=max_training_time if max_training_time else args["max_training_time"].default,
@@ -80,7 +85,9 @@ def train(
             model_state_strategy=model_state_strategy,
             device=device,
             max_sequence_window=max_sequence_window if max_sequence_window else args["max_sequence_window"].default,
+            federated_epochs=federated_epochs,
         )
+        return result
     else:
         from mostlyai.engine._language.training import train as train_language
 
@@ -88,7 +95,7 @@ def train(
             raise ValueError("max_sequence_window is not supported for language models")
 
         args = inspect.signature(train_language).parameters
-        train_language(
+        result = train_language(
             model=model if model else args["model"].default,
             workspace_dir=workspace_dir,
             max_training_time=max_training_time if max_training_time else args["max_training_time"].default,
@@ -101,4 +108,6 @@ def train(
             upload_model_data_callback=upload_model_data_callback,
             model_state_strategy=model_state_strategy,
             device=device,
+            federated_epochs=federated_epochs,
         )
+        return result

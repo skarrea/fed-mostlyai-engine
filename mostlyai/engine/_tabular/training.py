@@ -354,7 +354,8 @@ def train(
     device: torch.device | str | None = None,
     workspace_dir: str | Path = "engine-ws",
     update_progress: ProgressCallback | None = None,
-):
+    federated_epochs: int | None = None,
+) -> dict | None:
     _LOG.info("TRAIN_TABULAR started")
     t0 = time.time()
     workspace_dir = ensure_workspace_dir(workspace_dir)
@@ -829,7 +830,9 @@ def train(
                 trn_sample_losses = []
 
             # check for max_epochs
-            if epoch > max_epochs:
+            if federated_epochs is not None and epoch >= federated_epochs:
+                do_stop = True
+            elif epoch > max_epochs:
                 do_stop = True
 
             # check for max_training_time
@@ -874,3 +877,11 @@ def train(
             upload_model_data_callback()
 
     _LOG.info(f"TRAIN_TABULAR finished in {time.time() - t0:.2f}s")
+    
+    # Return model weights if federated training is requested
+    if federated_epochs is not None:
+        if isinstance(argn, GradSampleModule):
+            state_dict = argn._module.state_dict()
+        else:
+            state_dict = argn.state_dict()
+        return state_dict

@@ -292,7 +292,8 @@ def train(
     device: torch.device | str | None = None,
     workspace_dir: str | Path = "engine-ws",
     update_progress: ProgressCallback | None = None,
-):
+    federated_epochs: int | None = None,
+) -> dict | None:
     _LOG.info("TRAIN_LANGUAGE started")
     t0_ = time.time()
     workspace_dir = ensure_workspace_dir(workspace_dir)
@@ -817,7 +818,9 @@ def train(
                 do_stop = True
 
             # check for max_epochs
-            if epoch > max_epochs:
+            if federated_epochs is not None and epoch >= federated_epochs:
+                do_stop = True
+            elif epoch > max_epochs:
                 do_stop = True
 
             # check for max_training_time
@@ -866,3 +869,11 @@ def train(
             upload_model_data_callback()
 
     _LOG.info(f"TRAIN_LANGUAGE finished in {time.time() - t0_:.2f}s")
+    
+    # Return model weights if federated training is requested
+    if federated_epochs is not None:
+        if isinstance(model, GradSampleModule):
+            state_dict = model._module.state_dict()
+        else:
+            state_dict = model.state_dict()
+        return state_dict
