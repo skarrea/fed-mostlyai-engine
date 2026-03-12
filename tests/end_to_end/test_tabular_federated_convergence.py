@@ -115,7 +115,6 @@ def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=Te
     result = train(
         workspace_dir=workspace_dir,
         max_epochs=max_epochs,
-        max_training_time=10,  # 10 minutes max
         model=model
     )
 
@@ -138,7 +137,8 @@ def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=Te
     return result, final_val_loss, training_time
 
 
-def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS, epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
+def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
+                          epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
     """Train a model using the federated approach with fixed epochs per iteration and weight loading.
     
     This function provides an 'all-encompassing' test of the complete federated learning workflow:
@@ -167,7 +167,6 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS, epo
             workspace_dir=workspace_dir,
             federated_epochs=epochs_per_iteration,
             max_epochs=total_epochs,
-            max_training_time=10,
             model=model
         )
 
@@ -196,7 +195,7 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS, epo
         print(f"    Weights returned: {weights is not None}")
         print(f"    Validation loss: {current_val_loss}")
 
-        # Test weight loading by explicitly using ModelStateStrategy.resume  TODO: Change `resume` to plain JSON object
+        # Test weight loading by explicitly using ModelStateStrategy.resume  TODO: Change `resume` to passing a plain JSON object
         # This ensures the weights can be properly loaded for the next iteration
         if iteration < total_epochs and weights is not None:
             print(f"    Testing weight loading for next iteration...")
@@ -204,18 +203,17 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS, epo
             resume_result = train(
                 workspace_dir=workspace_dir,
                 max_epochs=total_epochs,
-                max_training_time=5,
                 model=model,
                 model_state_strategy=ModelStateStrategy.resume
             )
             print(f"    Weight loading test successful: {resume_result is not None}")
 
     print(f"\nFederated training completed in {total_training_time:.2f} seconds")
-    
+
     # Return final results
     final_weights = weights_history[-1] if weights_history else None
     final_loss = loss_history[-1] if loss_history else None
-    
+
     return final_weights, loss_history[0] if len(loss_history) > 1 else None, final_loss, total_training_time
 
 
@@ -291,7 +289,7 @@ def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
     - Tests the core federated training pattern with fixed epochs per iteration
     
     While train_federated_model provides an all-encompassing integration test, this function
-    offers a straightforward epoch-by-epoch analysis and monitoring capabilities for understanding training dynamics.
+    offers straightforward epoch-by-epoch analysis and monitoring capabilities for understanding training dynamics.
     """
     print(
         f"\n--- Epoch-by-Epoch Training (total_epochs={max_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
@@ -309,7 +307,6 @@ def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
             workspace_dir=workspace_dir,
             federated_epochs=epochs_per_iteration,
             max_epochs=max_epochs,
-            max_training_time=30,  # Increased for longer training
             model=TestConfig.MODEL_SIZE
         )
 
@@ -428,7 +425,7 @@ def test_epoch_by_epoch_comparison():
         return False
 
 
-def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION,model=TestConfig.MODEL_SIZE):
+def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
     """Test that federated weights can be properly loaded and training can continue.
     
     This function provides focused unit-level testing of the weight loading mechanism:
@@ -458,7 +455,6 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
                 workspace_dir=workspace_dir,
                 federated_epochs=epochs_per_iteration,
                 max_epochs=100,
-                max_training_time=5,
                 model=model
             )
 
@@ -473,7 +469,6 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
             final_result = train(
                 workspace_dir=workspace_dir,
                 max_epochs=15,
-                max_training_time=30,
                 model=model,
                 model_state_strategy=ModelStateStrategy.resume
             )
@@ -516,7 +511,8 @@ def test_training_approach_comparison():
             setup_workspace(data, federated_workspace)
 
             federated_weights, intermediate_val_loss, federated_val_loss, federated_time = train_federated_model(
-                federated_workspace, total_epochs=TestConfig.MAX_EPOCHS, epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION
+                federated_workspace, total_epochs=TestConfig.MAX_EPOCHS,
+                epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION
             )
 
             # Comparison results
@@ -648,7 +644,6 @@ def test_data_generation_quality():
             train(
                 workspace_dir=normal_workspace,
                 max_epochs=TestConfig.MAX_EPOCHS,
-                max_training_time=15,
                 model=TestConfig.MODEL_SIZE
             )
 
@@ -678,7 +673,6 @@ def test_data_generation_quality():
                     workspace_dir=federated_workspace,
                     federated_epochs=1,  # Fixed: 1 epoch per iteration
                     max_epochs=TestConfig.MAX_EPOCHS,
-                    max_training_time=15,
                     model=TestConfig.MODEL_SIZE
                 )
                 print(f"  Completed iteration {iteration}/{TestConfig.MAX_EPOCHS}")
@@ -839,7 +833,7 @@ def test_data_generation_quality():
                                 if discriminator_auc is not None:
                                     print(f"    Discriminator AUC: {discriminator_auc:.3f}")
                                     # For similarity, we want AUC close to 0.5 (can't distinguish well)
-                                    auc_similar = abs(discriminator_auc - 0.5) < 0.2  # Within 0.3-0.7 range
+                                    auc_similar = abs(discriminator_auc - 0.5) < 0.2  # Within a 0.3-0.7 range
                                     print(f"    AUC indicates similarity: {'✓ YES' if auc_similar else '❌ NO'}")
 
                                 # 4. Univariate accuracy (individual column statistics)
