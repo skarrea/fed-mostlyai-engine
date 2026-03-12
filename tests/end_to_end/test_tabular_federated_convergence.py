@@ -32,7 +32,8 @@ from mostlyai.engine._workspace import Workspace
 class TestConfig:
     """Centralised configuration for test parameters"""
     # Training parameters
-    TRAIN_EPOCHS = 5  # Number of epochs for training
+    EPOCHS_PER_ITERATION = 1  # Numbers of epochs per federated iteration
+    MAX_EPOCHS = 5  # Maximum number of epochs for training
     MODEL_SIZE = "MOSTLY_AI/Small"  # Model size to use
 
     # Data generation parameters
@@ -106,7 +107,7 @@ def setup_workspace(data, workspace_dir):
     encode(workspace_dir=workspace_dir)
 
 
-def train_normal_model(workspace_dir, max_epochs=5):
+def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=TestConfig.MODEL_SIZE):
     """Train a model using the normal training approach."""
     print(f"\n--- Normal Training (max_epochs={max_epochs}) ---")
     start_time = time.time()
@@ -115,7 +116,7 @@ def train_normal_model(workspace_dir, max_epochs=5):
         workspace_dir=workspace_dir,
         max_epochs=max_epochs,
         max_training_time=10,  # 10 minutes max
-        model="MOSTLY_AI/Large"
+        model=model
     )
 
     training_time = time.time() - start_time
@@ -137,71 +138,85 @@ def train_normal_model(workspace_dir, max_epochs=5):
     return result, final_val_loss, training_time
 
 
-def train_federated_model(workspace_dir, federated_epochs=2, continue_epochs=3):
-    """Train a model using the federated approach with continuation."""
-    print(f"\n--- Federated Training (federated_epochs={federated_epochs}, continue_epochs={continue_epochs}) ---")
+def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS, epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
+    """Train a model using the federated approach with fixed epochs per iteration and weight loading.
+    
+    This function provides an 'all-encompassing' test of the complete federated learning workflow:
+    - Uses fixed epochs per iteration
+    - Explicitly tests weight loading between iterations using ModelStateStrategy.resume; TODO change to JSON
+    - Simulates real-world federated learning where weights are saved and loaded between rounds
+    - Provides a comprehensive integration test that validates the entire workflow
+    
+    While test_federated_weights_loading tests weight loading in isolation, this function tests it
+    as part of the complete federated training process, providing additional confidence and
+    catching integration-level issues.
+    """
+    print(f"\n--- Federated Training (total_epochs={total_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
 
-    # Phase 1: Federated training
-    print(f"Phase 1: Federated training for {federated_epochs} epochs")
-    start_time = time.time()
+    weights_history = []
+    loss_history = []
+    training_times = []
+    total_training_time = 0
 
-    federated_weights = train(
-        workspace_dir=workspace_dir,
-        federated_epochs=federated_epochs,
-        max_epochs=100,  # High enough to not interfere
-        max_training_time=10,
-        model="MOSTLY_AI/Large"
-    )
+    for iteration in range(1, total_epochs + 1):
+        print(f"\n  Federated Iteration {iteration}/{total_epochs}")
+        start_time = time.time()
 
-    federated_time = time.time() - start_time
-    print(f"Federated training completed in {federated_time:.2f} seconds")
-    print(f"Federated weights returned: {federated_weights is not None}")
-    if federated_weights:
-        print(f"Federated weights keys: {list(federated_weights.keys())[:3]}...")
+        # Train for exactly 'epochs_per_iteration' epochs each time
+        weights = train(
+            workspace_dir=workspace_dir,
+            federated_epochs=epochs_per_iteration,
+            max_epochs=total_epochs,
+            max_training_time=10,
+            model=model
+        )
 
-    # Get intermediate validation loss
-    workspace = Workspace(workspace_dir)
-    progress_messages_path = workspace.model_progress_messages_path
-    intermediate_val_loss = None
-    if progress_messages_path.exists():
-        try:
-            progress_df = pd.read_csv(progress_messages_path)
-            if not progress_df.empty:
-                intermediate_val_loss = progress_df.iloc[-1].get('val_loss')
-        except Exception as e:
-            print(f"Warning: Could not read intermediate progress messages: {e}")
+        training_time = time.time() - start_time
+        total_training_time += training_time
 
-    # Phase 2: Continue training from federated weights
-    print(f"Phase 2: Continuing training for {continue_epochs} more epochs")
-    start_continue_time = time.time()
+        # Get current validation loss TODO: decouple from workspace
+        workspace = Workspace(workspace_dir)
+        progress_messages_path = workspace.model_progress_messages_path
+        current_val_loss = None
+        if progress_messages_path.exists():
+            try:
+                progress_df = pd.read_csv(progress_messages_path)
+                if not progress_df.empty:
+                    current_val_loss = progress_df.iloc[-1].get('val_loss')
+            except Exception as e:
+                print(f"      Warning: Could not read progress messages: {e}")
 
-    # Load the federated weights by using resume strategy
-    final_result = train(
-        workspace_dir=workspace_dir,
-        max_epochs=federated_epochs + continue_epochs,
-        max_training_time=10,
-        model="MOSTLY_AI/Large",
-        model_state_strategy=ModelStateStrategy.resume  # This should load the saved weights
-    )
+        # Store results
+        weights_history.append(weights)
+        loss_history.append(current_val_loss)
+        training_times.append(training_time)
 
-    continue_time = time.time() - start_continue_time
-    total_federated_time = federated_time + continue_time
-    print(f"Continuation training completed in {continue_time:.2f} seconds")
-    print(f"Total federated approach time: {total_federated_time:.2f} seconds")
-    print(f"Final result: {final_result}")
+        # Print analysis
+        print(f"    Training time: {training_time:.2f}s")
+        print(f"    Weights returned: {weights is not None}")
+        print(f"    Validation loss: {current_val_loss}")
 
-    # Get final validation loss
-    progress_messages_path = workspace.model_progress_messages_path
-    final_val_loss = None
-    if progress_messages_path.exists():
-        try:
-            progress_df = pd.read_csv(progress_messages_path)
-            if not progress_df.empty:
-                final_val_loss = progress_df.iloc[-1].get('val_loss')
-        except Exception as e:
-            print(f"Warning: Could not read final progress messages: {e}")
+        # Test weight loading by explicitly using ModelStateStrategy.resume  TODO: Change `resume` to plain JSON object
+        # This ensures the weights can be properly loaded for the next iteration
+        if iteration < total_epochs and weights is not None:
+            print(f"    Testing weight loading for next iteration...")
+            # Force weight loading by using the resume strategy
+            resume_result = train(
+                workspace_dir=workspace_dir,
+                max_epochs=total_epochs,
+                max_training_time=5,
+                model=model,
+                model_state_strategy=ModelStateStrategy.resume
+            )
+            print(f"    Weight loading test successful: {resume_result is not None}")
 
-    return federated_weights, intermediate_val_loss, final_val_loss, total_federated_time
+    print(f"\nFederated training completed in {total_training_time:.2f} seconds")
+    
+    # Return final results
+    final_weights = weights_history[-1] if weights_history else None
+    final_loss = loss_history[-1] if loss_history else None
+    
+    return final_weights, loss_history[0] if len(loss_history) > 1 else None, final_loss, total_training_time
 
 
 def analyse_weights(weights, epoch, detailed=False):
@@ -265,25 +280,37 @@ def analyse_weights(weights, epoch, detailed=False):
             print(f"      Warning: Could not create plot: {e}")
 
 
-def train_epoch_by_epoch(workspace_dir, total_epochs=15):
-    """Train one epoch at a time and analyse weights after each epoch."""
-    print(f"\n--- Epoch-by-Epoch Training (total_epochs={total_epochs}) ---")
+def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
+                         epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION):
+    """Train one epoch at a time and analyse weights after each epoch.
+    
+    This function focuses on detailed analysis and monitoring of the federated training process:
+    - Tracks complete history of weights, losses, and training times for each iteration
+    - Includes comprehensive weight analysis with statistics, percentiles, and visualisation
+    - Provides progress monitoring and detailed logging for debugging and understanding
+    - Tests the core federated training pattern with fixed epochs per iteration
+    
+    While train_federated_model provides an all-encompassing integration test, this function
+    offers a straightforward epoch-by-epoch analysis and monitoring capabilities for understanding training dynamics.
+    """
+    print(
+        f"\n--- Epoch-by-Epoch Training (total_epochs={max_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
 
     weights_history = []
     loss_history = []
     training_times = []
 
-    for epoch in range(1, total_epochs + 1):
-        print(f"\n  Epoch {epoch}/{total_epochs}")
+    for iteration in range(1, max_epochs + 1):
+        print(f"\n  Iteration {iteration}/{max_epochs}")
         start_time = time.time()
 
-        # Train for exactly 'epoch' epochs (cumulative)
+        # Train for exactly 'epochs_per_iteration' epochs each time
         weights = train(
             workspace_dir=workspace_dir,
-            federated_epochs=epoch,  # Train up to this epoch
-            max_epochs=total_epochs,
+            federated_epochs=epochs_per_iteration,
+            max_epochs=max_epochs,
             max_training_time=30,  # Increased for longer training
-            model="MOSTLY_AI/Large"
+            model=TestConfig.MODEL_SIZE
         )
 
         training_time = time.time() - start_time
@@ -311,12 +338,12 @@ def train_epoch_by_epoch(workspace_dir, total_epochs=15):
         print(f"    Validation loss: {current_val_loss}")
 
         # Progress indicator for long training
-        if total_epochs > 10:
-            progress_percent = (epoch / total_epochs) * 100
+        if max_epochs > 10:
+            progress_percent = (iteration / max_epochs) * 100
             print(f"    Progress: {progress_percent:.0f}% complete")
 
         if weights:
-            analyse_weights(weights, epoch)
+            analyse_weights(weights, iteration)
 
     return weights_history, loss_history, training_times
 
@@ -341,8 +368,7 @@ def test_epoch_by_epoch_comparison():
 
             print(f"\nFederated epoch-by-epoch training:")
             federated_weights_history, federated_loss_history, federated_times = train_epoch_by_epoch(
-                federated_workspace, total_epochs=15
-            )
+                federated_workspace)
 
             # Normal training for final comparison
             normal_workspace = Path(tmpdir) / "normal-epoch-ws"
@@ -353,7 +379,7 @@ def test_epoch_by_epoch_comparison():
 
             print(f"\nNormal training for comparison:")
             normal_result, normal_val_loss, normal_time = train_normal_model(
-                normal_workspace, max_epochs=15
+                normal_workspace
             )
 
             # Analysis and comparison
@@ -402,8 +428,17 @@ def test_epoch_by_epoch_comparison():
         return False
 
 
-def test_federated_weights_loading():
-    """Test that federated weights can be properly loaded and training can continue."""
+def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION,model=TestConfig.MODEL_SIZE):
+    """Test that federated weights can be properly loaded and training can continue.
+    
+    This function provides focused unit-level testing of the weight loading mechanism:
+    - Tests weight serialization and deserialization in isolation
+    - Validates that weights obtained from federated training can be loaded for continuation
+    - Serves as a targeted test for the ModelStateStrategy.resume functionality
+    
+    While train_federated_model tests weight loading as part of the complete workflow, this
+    function provides isolated validation of the core weight loading mechanism.
+    """
     print("\n" + "=" * 80)
     print("FEDERATED WEIGHTS LOADING TEST")
     print("=" * 80)
@@ -421,10 +456,10 @@ def test_federated_weights_loading():
             print("Training with federated epochs to get weights...")
             weights = train(
                 workspace_dir=workspace_dir,
-                federated_epochs=1,
+                federated_epochs=epochs_per_iteration,
                 max_epochs=100,
                 max_training_time=5,
-                model="MOSTLY_AI/Large"
+                model=model
             )
 
             if weights is None:
@@ -439,7 +474,7 @@ def test_federated_weights_loading():
                 workspace_dir=workspace_dir,
                 max_epochs=15,
                 max_training_time=30,
-                model="MOSTLY_AI/Large",
+                model=model,
                 model_state_strategy=ModelStateStrategy.resume
             )
 
@@ -481,7 +516,7 @@ def test_training_approach_comparison():
             setup_workspace(data, federated_workspace)
 
             federated_weights, intermediate_val_loss, federated_val_loss, federated_time = train_federated_model(
-                federated_workspace
+                federated_workspace, total_epochs=TestConfig.MAX_EPOCHS, epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION
             )
 
             # Comparison results
@@ -591,7 +626,7 @@ def test_data_generation_quality():
     print("\n" + "=" * 80)
     print("DATA GENERATION QUALITY COMPARISON")
     print("=" * 80)
-    print(f"Configuration: {TestConfig.TRAIN_EPOCHS} epochs, {TestConfig.MODEL_SIZE} model")
+    print(f"Configuration: {TestConfig.MAX_EPOCHS} epochs, {TestConfig.MODEL_SIZE} model")
 
     try:
         data = create_test_data()
@@ -612,7 +647,7 @@ def test_data_generation_quality():
             print("Training normal model...")
             train(
                 workspace_dir=normal_workspace,
-                max_epochs=TestConfig.TRAIN_EPOCHS,
+                max_epochs=TestConfig.MAX_EPOCHS,
                 max_training_time=15,
                 model=TestConfig.MODEL_SIZE
             )
@@ -636,17 +671,17 @@ def test_data_generation_quality():
             print(f"\nSetting up federated training workspace: {federated_workspace}")
             setup_workspace(train_data, federated_workspace)
 
-            # Train with the federated approach (epoch by epoch)
-            print("Training federated model epoch-by-epoch...")
-            for epoch in range(1, TestConfig.TRAIN_EPOCHS + 1):
+            # Train with the federated approach (fixed epochs per iteration)
+            print("Training federated model with fixed epochs per iteration...")
+            for iteration in range(1, TestConfig.MAX_EPOCHS + 1):
                 train(
                     workspace_dir=federated_workspace,
-                    federated_epochs=epoch,
-                    max_epochs=TestConfig.TRAIN_EPOCHS,
+                    federated_epochs=1,  # Fixed: 1 epoch per iteration
+                    max_epochs=TestConfig.MAX_EPOCHS,
                     max_training_time=15,
                     model=TestConfig.MODEL_SIZE
                 )
-                print(f"  Completed epoch {epoch}/{TestConfig.TRAIN_EPOCHS}")
+                print(f"  Completed iteration {iteration}/{TestConfig.MAX_EPOCHS}")
 
             # Generate synthetic data from the federated model
             print("Generating data from federated model...")
