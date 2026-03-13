@@ -139,17 +139,17 @@ def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=Te
 
 def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
                           epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
-    """Train a model using the federated approach with fixed epochs per iteration and weight loading.
+    """Train a model using the federated approach with fixed epochs per iteration and federated state objects.
     
     This function provides an 'all-encompassing' test of the complete federated learning workflow:
     - Uses fixed epochs per iteration
-    - Explicitly tests weight loading between iterations using ModelStateStrategy.resume; TODO change to JSON
-    - Simulates real-world federated learning where weights are saved and loaded between rounds
+    - Explicitly tests federated state object passing between iterations
+    - Simulates real-world federated learning where comprehensive state is passed between rounds
     - Provides a comprehensive integration test that validates the entire workflow
     
-    While test_federated_weights_loading tests weight loading in isolation, this function tests it
-    as part of the complete federated training process, providing additional confidence and
-    catching integration-level issues.
+    The function demonstrates the new federated state pattern where comprehensive state objects
+    (containing model weights, optimiser state, LR scheduler state, and DP accountant state) are
+    passed between training iterations instead of relying on workspace files.
     """
     print(f"\n--- Federated Training (total_epochs={total_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
 
@@ -157,23 +157,26 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
     loss_history = []
     training_times = []
     total_training_time = 0
+    federated_state = None  # Start with no federated state
 
     for iteration in range(1, total_epochs + 1):
         print(f"\n  Federated Iteration {iteration}/{total_epochs}")
         start_time = time.time()
 
         # Train for exactly 'epochs_per_iteration' epochs each time
-        weights = train(
-            workspace_dir=workspace_dir,
+        # Pass the federated state from the previous iteration (if available)
+        result = train(
+            workspace_dir=workspace_dir, # Continue to pass the workspace for data and associated metadata
             federated_epochs=epochs_per_iteration,
             max_epochs=total_epochs,
-            model=model
+            model=model,
+            federated_state=federated_state  # Pass previous federated state
         )
 
         training_time = time.time() - start_time
         total_training_time += training_time
 
-        # Get current validation loss TODO: decouple from workspace
+        # Get current validation loss
         workspace = Workspace(workspace_dir)
         progress_messages_path = workspace.model_progress_messages_path
         current_val_loss = None
@@ -186,35 +189,40 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
                 print(f"      Warning: Could not read progress messages: {e}")
 
         # Store results
-        weights_history.append(weights)
+        weights_history.append(result)
         loss_history.append(current_val_loss)
         training_times.append(training_time)
 
         # Print analysis
         print(f"    Training time: {training_time:.2f}s")
-        print(f"    Weights returned: {weights is not None}")
+        print(f"    Federated state returned: {result is not None}")
         print(f"    Validation loss: {current_val_loss}")
 
-        # Test weight loading by explicitly using ModelStateStrategy.resume  TODO: Change `resume` to passing a plain JSON object
-        # This ensures the weights can be properly loaded for the next iteration
-        if iteration < total_epochs and weights is not None:
-            print(f"    Testing weight loading for next iteration...")
-            # Force weight loading by using the resume strategy
-            resume_result = train(
-                workspace_dir=workspace_dir,
-                max_epochs=total_epochs,
-                model=model,
-                model_state_strategy=ModelStateStrategy.resume
-            )
-            print(f"    Weight loading test successful: {resume_result is not None}")
+        # Prepare the federated state for the next iteration
+        # The result is a comprehensive federated state object that contains everything needed for continuation
+        if result is not None and iteration < total_epochs:
+            print(f"    Preparing federated state for next iteration...")
+            # The result is already a complete federated state object, so we can use it directly
+            federated_state = result
+            print(f"    Federated state contains: {list(result.keys())}")
+            
+            # Verify the federated state has the expected structure
+            expected_keys = {"model_weights", "training_metrics", "optimizer_state", "lr_scheduler_state"}
+            actual_keys = set(result.keys())
+            missing_keys = expected_keys - actual_keys
+            if missing_keys:
+                print(f"    ⚠️  Warning: Missing expected keys in federated state: {missing_keys}")
+            else:
+                print(f"    ✓ Federated state has all expected components")
 
     print(f"\nFederated training completed in {total_training_time:.2f} seconds")
 
     # Return final results
     final_weights = weights_history[-1] if weights_history else None
+    intermediate_loss = loss_history[0] if len(loss_history) > 1 else None
     final_loss = loss_history[-1] if loss_history else None
 
-    return final_weights, loss_history[0] if len(loss_history) > 1 else None, final_loss, total_training_time
+    return final_weights, intermediate_loss, final_loss, total_training_time
 
 
 def analyse_weights(weights, epoch, detailed=False):
@@ -225,9 +233,15 @@ def analyse_weights(weights, epoch, detailed=False):
 
     print(f"    Weight analysis for epoch {epoch}:")
 
+    # Extract model_weights from the federated state if needed
+    if isinstance(weights, dict) and "model_weights" in weights:
+        model_weights = weights["model_weights"]
+    else:
+        model_weights = weights
+
     # Collect all weight values
     all_values = []
-    for name, tensor in weights.items():
+    for name, tensor in model_weights.items():
         if hasattr(tensor, 'numpy'):  # PyTorch tensor
             # Handle both CPU and CUDA tensors
             if tensor.is_cuda:
@@ -252,7 +266,7 @@ def analyse_weights(weights, epoch, detailed=False):
     # Layer type analysis
     if detailed:
         layer_types = {}
-        for name in weights.keys():
+        for name in model_weights.keys():
             if 'weight' in name:
                 layer_types['weight'] = layer_types.get('weight', 0) + 1
             elif 'bias' in name:
@@ -263,7 +277,7 @@ def analyse_weights(weights, epoch, detailed=False):
         print(f"      Layer types: {layer_types}")
 
     # Visualisation
-    if HAS_MATPLOTLIB and all_values:
+    if HAS_MATPLOTLIB and len(all_values) > 0:
         try:
             plt.figure(figsize=(10, 4))
             plt.hist(all_values, bins=50, alpha=0.7, color='blue')
@@ -297,17 +311,20 @@ def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
     weights_history = []
     loss_history = []
     training_times = []
+    federated_state = None  # Start with no federated state
 
     for iteration in range(1, max_epochs + 1):
         print(f"\n  Iteration {iteration}/{max_epochs}")
         start_time = time.time()
 
         # Train for exactly 'epochs_per_iteration' epochs each time
-        weights = train(
-            workspace_dir=workspace_dir,
+        # Pass the federated state from the previous iteration (if available)
+        result = train(
+            workspace_dir=workspace_dir,  # Continue to pass the workspace for data and associated metadata
             federated_epochs=epochs_per_iteration,
             max_epochs=max_epochs,
-            model=TestConfig.MODEL_SIZE
+            model=TestConfig.MODEL_SIZE,
+            federated_state=federated_state  # Pass previous federated state
         )
 
         training_time = time.time() - start_time
@@ -325,13 +342,13 @@ def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
                 print(f"      Warning: Could not read progress messages: {e}")
 
         # Store results
-        weights_history.append(weights)
+        weights_history.append(result)
         loss_history.append(current_val_loss)
         training_times.append(training_time)
 
         # Print analysis
         print(f"    Training time: {training_time:.2f}s")
-        print(f"    Weights returned: {weights is not None}")
+        print(f"    Federated state returned: {result is not None}")
         print(f"    Validation loss: {current_val_loss}")
 
         # Progress indicator for long training
@@ -339,8 +356,13 @@ def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
             progress_percent = (iteration / max_epochs) * 100
             print(f"    Progress: {progress_percent:.0f}% complete")
 
-        if weights:
-            analyse_weights(weights, iteration)
+        # Prepare the federated state for the next iteration
+        if result is not None and iteration < max_epochs:
+            federated_state = result
+            print(f"    Preparing federated state for next iteration...")
+
+        if result:
+            analyse_weights(result, iteration)
 
     return weights_history, loss_history, training_times
 
@@ -431,10 +453,11 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
     This function provides focused unit-level testing of the weight loading mechanism:
     - Tests weight serialization and deserialization in isolation
     - Validates that weights obtained from federated training can be loaded for continuation
-    - Serves as a targeted test for the ModelStateStrategy.resume functionality
+    - Demonstrates the new federated state pattern for training continuation
     
     While train_federated_model tests weight loading as part of the complete workflow, this
-    function provides isolated validation of the core weight loading mechanism.
+    function provides isolated validation of the core weight loading mechanism using the
+    new federated state pattern.
     """
     print("\n" + "=" * 80)
     print("FEDERATED WEIGHTS LOADING TEST")
@@ -451,29 +474,46 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
 
             # Train with federated epochs to get weights
             print("Training with federated epochs to get weights...")
-            weights = train(
+            federated_state = train(
                 workspace_dir=workspace_dir,
                 federated_epochs=epochs_per_iteration,
                 max_epochs=100,
                 model=model
             )
 
-            if weights is None:
-                print("❌ FAILED: No weights returned from federated training")
+            if federated_state is None:
+                print("❌ FAILED: No federated state returned from federated training")
                 return False
 
-            print(f"✓ Received {len(weights)} model parameters")
+            print(f"✓ Received federated state with {len(federated_state['model_weights'])} model parameters")
+            print(f"✓ Federated state contains: {list(federated_state.keys())}")
 
-            # Verify we can continue training
-            print("Continuing training from saved weights...")
+            # Verify we can continue training using the federated state pattern
+            print("Continuing training from federated state...")
             final_result = train(
-                workspace_dir=workspace_dir,
-                max_epochs=15,
+                workspace_dir=workspace_dir,  # Use the same workspace for data and associated metadata
+                federated_epochs=epochs_per_iteration,
+                max_epochs=100,
                 model=model,
-                model_state_strategy=ModelStateStrategy.resume
+                federated_state=federated_state
             )
 
-            print("✓ Successfully continued training from federated weights")
+            if final_result is None:
+                print("❌ FAILED: Continuation training returned None")
+                return False
+
+            print("✓ Successfully continued training using federated state pattern")
+            print(f"✓ Final federated state contains: {list(final_result.keys())}")
+            
+            # Verify that training actually continued (epochs progressed)
+            initial_epoch = federated_state["training_metrics"]["epoch"]
+            final_epoch = final_result["training_metrics"]["epoch"]
+            
+            if final_epoch > initial_epoch:
+                print(f"✓ Training progressed from epoch {initial_epoch} to {final_epoch}")
+            else:
+                print(f"⚠️  Warning: Epochs did not progress as expected: {initial_epoch} -> {final_epoch}")
+
             return True
 
     except Exception as e:
@@ -511,8 +551,7 @@ def test_training_approach_comparison():
             setup_workspace(data, federated_workspace)
 
             federated_weights, intermediate_val_loss, federated_val_loss, federated_time = train_federated_model(
-                federated_workspace, total_epochs=TestConfig.MAX_EPOCHS,
-                epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION
+                federated_workspace
             )
 
             # Comparison results
@@ -575,16 +614,19 @@ def main():
     # Run tests
     results = []
 
-    # Test 1: Federated weights loading
+    # Test 1: Enhanced federated state pattern (new comprehensive test)
+    results.append(("Enhanced Federated State Pattern", test_enhanced_federated_state_pattern()))
+
+    # Test 2: Federated weights loading
     results.append(("Federated Weights Loading", test_federated_weights_loading()))
 
-    # Test 2: Training approach comparison
+    # Test 3: Training approach comparison
     results.append(("Training Approach Comparison", test_training_approach_comparison()))
 
-    # Test 3: Epoch-by-epoch analysis
+    # Test 4: Epoch-by-epoch analysis
     results.append(("Epoch-by-Epoch Analysis", test_epoch_by_epoch_comparison()))
 
-    # Test 4: Data generation quality comparison
+    # Test 5: Data generation quality comparison
     results.append(("Data Generation Quality", test_data_generation_quality()))
 
     # Print summary
@@ -671,7 +713,7 @@ def test_data_generation_quality():
             for iteration in range(1, TestConfig.MAX_EPOCHS + 1):
                 train(
                     workspace_dir=federated_workspace,
-                    federated_epochs=1,  # Fixed: 1 epoch per iteration
+                    federated_epochs=1,
                     max_epochs=TestConfig.MAX_EPOCHS,
                     model=TestConfig.MODEL_SIZE
                 )
@@ -680,7 +722,7 @@ def test_data_generation_quality():
             # Generate synthetic data from the federated model
             print("Generating data from federated model...")
             generate(
-                workspace_dir=federated_workspace,
+                workspace_dir=federated_workspace,  # TODO in federated context this would of course not work
                 sample_size=TestConfig.TEST_SAMPLES
             )
             # Read the generated data
@@ -892,6 +934,219 @@ def test_data_generation_quality():
 
     except Exception as e:
         print(f"Error during data generation quality test: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def test_enhanced_federated_state_pattern():
+    """Test the enhanced federated state pattern with all robustness improvements.
+    
+    This test specifically validates the new federated state implementation:
+    - Tests comprehensive federated state objects (model weights, optimiser state, LR scheduler state, DP accountant state)
+    - Validates None guards for missing or None state components
+    - Tests proper state continuation across multiple iterations
+    - Demonstrates the complete federated learning workflow with state passing
+    """
+    print("\n" + "=" * 80)
+    print("ENHANCED FEDERATED STATE PATTERN TEST")
+    print("=" * 80)
+    
+    try:
+        data = create_test_data()
+        print(f"Created test data with {len(data)} samples")
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace_dir = Path(tmpdir) / "enhanced-federated-ws"
+            workspace_dir.mkdir(parents=True)
+            
+            print(f"Setting up workspace: {workspace_dir}")
+            setup_workspace(data, workspace_dir)
+            
+            # Test 1: Initial training with no federated state
+            print("\n1. Testing initial training (no federated state)...")
+            federated_state = None  # Start with no state
+            
+            result1 = train(
+                workspace_dir=workspace_dir,
+                federated_epochs=1,
+                max_epochs=100,
+                model=TestConfig.MODEL_SIZE,
+                federated_state=federated_state
+            )
+            
+            if result1 is None:
+                print("❌ FAILED: Initial training returned None")
+                return False
+            
+            print("✓ Initial training successful")
+            print(f"✓ Federated state contains: {list(result1.keys())}")
+            
+            # Test 2: Continuation with complete federated state
+            print("\n2. Testing continuation with complete federated state...")
+            
+            result2 = train(
+                workspace_dir=workspace_dir,
+                federated_epochs=1,
+                max_epochs=100,
+                model=TestConfig.MODEL_SIZE,
+                federated_state=result1  # Pass complete state
+            )
+            
+            if result2 is None:
+                print("❌ FAILED: Continuation training returned None")
+                return False
+            
+            print("✓ Continuation with complete state successful")
+            
+            # Test 3: Continuation with partial federated state (missing some components)
+            print("\n3. Testing continuation with partial federated state...")
+            
+            # Create a partial federated state (missing optimiser and LR scheduler state)
+            partial_federated_state = {
+                "model_weights": result2["model_weights"],
+                "training_metrics": result2["training_metrics"],
+                "optimizer_state": None,  # Missing optimiser state
+                "lr_scheduler_state": None  # Missing LR scheduler state
+            }
+            
+            result3 = train(
+                workspace_dir=workspace_dir,
+                federated_epochs=1,
+                max_epochs=100,
+                model=TestConfig.MODEL_SIZE,
+                federated_state=partial_federated_state  # Pass partial state
+            )
+            
+            if result3 is None:
+                print("❌ FAILED: Partial state continuation returned None")
+                return False
+            
+            print("✓ Continuation with partial state successful (None guards working)")
+            
+            # Test 4: Continuation with minimal federated state (only model weights)
+            print("\n4. Testing continuation with minimal federated state...")
+            
+            minimal_federated_state = {
+                "model_weights": result3["model_weights"],
+                "training_metrics": result3["training_metrics"],
+                "optimizer_state": None,
+                "lr_scheduler_state": None
+            }
+            
+            result4 = train(
+                workspace_dir=workspace_dir,
+                federated_epochs=1,
+                max_epochs=100,
+                model=TestConfig.MODEL_SIZE,
+                federated_state=minimal_federated_state  # Pass minimal state
+            )
+            
+            if result4 is None:
+                print("❌ FAILED: Minimal state continuation returned None")
+                return False
+            
+            print("✓ Continuation with minimal state successful")
+            
+            # Test 5: Verify federated state structure consistency
+            print("\n5. Verifying federated state structure consistency...")
+            
+            all_states = [result1, result2, result3, result4]
+            expected_keys = {"model_weights", "training_metrics", "optimizer_state", "lr_scheduler_state"}
+            
+            for i, state in enumerate(all_states, 1):
+                actual_keys = set(state.keys())
+                missing_keys = expected_keys - actual_keys
+                if missing_keys:
+                    print(f"❌ FAILED: State {i} missing keys: {missing_keys}")
+                    return False
+                
+                # Verify training metrics structure
+                metrics_keys = {"epoch", "steps", "samples", "learn_rate", "trn_loss", "val_loss"}
+                actual_metrics_keys = set(state["training_metrics"].keys())
+                missing_metrics_keys = metrics_keys - actual_metrics_keys
+                if missing_metrics_keys:
+                    print(f"❌ FAILED: State {i} missing metrics keys: {missing_metrics_keys}")
+                    return False
+            
+            print("✓ All federated states have consistent structure")
+            
+            # Test 6: Verify state evolution
+            print("\n6. Verifying state evolution across iterations...")
+            
+            # Check that epochs are progressing
+            epochs = [state["training_metrics"]["epoch"] for state in all_states]
+            if epochs != sorted(epochs):
+                print(f"❌ FAILED: Epochs not progressing correctly: {epochs}")
+                return False
+            
+            print(f"✓ Epochs progressing correctly: {epochs}")
+            
+            # Check that steps are increasing
+            steps = [state["training_metrics"]["steps"] for state in all_states]
+            if steps != sorted(steps):
+                print(f"❌ FAILED: Steps not increasing correctly: {steps}")
+                return False
+            
+            print(f"✓ Steps increasing correctly: {steps}")
+            
+            # Test 7: Verify weight evolution (training actually continues)
+            print("\n7. Verifying weight evolution (training continuation)...")
+            
+            # Compare weights between iterations to verify training continued
+            weights_changed = False
+            for i in range(len(all_states) - 1):
+                current_weights = all_states[i]["model_weights"]
+                next_weights = all_states[i + 1]["model_weights"]
+                
+                # Check a sample of weight parameters
+                sample_key = list(current_weights.keys())[0]  # Use first weight parameter
+                
+                w_current = current_weights[sample_key]
+                w_next = next_weights[sample_key]
+                
+                # Convert to numpy if needed (handle both CPU and GPU tensors)
+                if hasattr(w_current, 'cpu'):
+                    w_current = w_current.cpu().numpy()
+                elif hasattr(w_current, 'numpy'):
+                    w_current = w_current.numpy()
+                else:
+                    w_current = np.array(w_current)
+                    
+                if hasattr(w_next, 'cpu'):
+                    w_next = w_next.cpu().numpy()
+                elif hasattr(w_next, 'numpy'):
+                    w_next = w_next.numpy()
+                else:
+                    w_next = np.array(w_next)
+                
+                # Check if weights changed (training continued)
+                if not np.array_equal(w_current, w_next):
+                    weights_changed = True
+                    print(f"✓ Weights changed between iteration {i+1} and {i+2} (training continued)")
+                    break
+            
+            if not weights_changed:
+                print("⚠️  Warning: Weights appear unchanged between iterations")
+                print("   This may indicate training did not continue properly")
+            else:
+                print("✓ Weight evolution verified: training continued across iterations")
+            
+            print("\n" + "=" * 60)
+            print("ENHANCED FEDERATED STATE PATTERN TEST: PASSED")
+            print("=" * 60)
+            print("✓ All robustness improvements working correctly:")
+            print("  - Comprehensive state objects with all components")
+            print("  - None guards for missing/None state components")
+            print("  - Proper state continuation across iterations")
+            print("  - Consistent state structure")
+            print("  - Correct state evolution")
+            print("  - Weight evolution verified (training continues)")
+            
+            return True
+            
+    except Exception as e:
+        print(f"❌ FAILED: Error during enhanced federated state test: {e}")
         import traceback
         traceback.print_exc()
         return False

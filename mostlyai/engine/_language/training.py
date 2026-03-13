@@ -293,6 +293,7 @@ def train(
     workspace_dir: str | Path = "engine-ws",
     update_progress: ProgressCallback | None = None,
     federated_epochs: int | None = None,
+    federated_state: dict | None = None,
 ) -> dict | None:
     _LOG.info("TRAIN_LANGUAGE started")
     t0_ = time.time()
@@ -411,14 +412,23 @@ def train(
         model_checkpoint = LanguageModelCheckpoint(workspace=workspace)
         model: PreTrainedModel | PeftModel
 
+        # Handle federated state if provided
+        if federated_state is not None:
+            _LOG.info("federated state provided, loading model weights and states")
+            # For language models, we need to handle this differently based on the model type
+            # Set model_state_strategy to resume when a federated state is provided
+            model_state_strategy = ModelStateStrategy.resume
+            resume_from_last_checkpoint = False  # We'll load from a federated state instead
+            model_id_or_path = model
+        
         # check how to handle existing model weights
         if isinstance(model_state_strategy, str):
             model_state_strategy = ModelStateStrategy(model_state_strategy)
-        if not model_checkpoint.model_weights_path_exists():
+        if not model_checkpoint.model_weights_path_exists() and federated_state is None:
             _LOG.info(f"model weights not found; change strategy from {model_state_strategy} to RESET")
             model_state_strategy = ModelStateStrategy.reset
         _LOG.info(f"{model_state_strategy=}")
-        if model_state_strategy in [ModelStateStrategy.resume, ModelStateStrategy.reuse]:
+        if model_state_strategy in [ModelStateStrategy.resume, ModelStateStrategy.reuse] and federated_state is None:
             _LOG.info("load existing model weights")
             torch.serialization.add_safe_globals([np._core.multiarray.scalar, np.dtype, np.dtypes.Float64DType])
             resume_from_last_checkpoint = True
@@ -505,6 +515,15 @@ def train(
         # persist model configs
         model_configs = {"enable_flexible_generation": enable_flexible_generation}
         workspace.model_configs.write(model_configs)
+
+        # Load model weights from a federated state if provided
+        if federated_state is not None and federated_state.get("model_weights") is not None:
+            _LOG.info("loading model weights from federated state")
+            _LOG.info(f"federated state contains: {list(federated_state.keys())}")
+            model.load_state_dict(federated_state["model_weights"])
+            _LOG.info("✓ successfully loaded model weights from federated state")
+        elif federated_state is not None:
+            _LOG.info("no model weights found in federated state")
 
         _LOG.info(f"model loading time: {time.time() - t0:.2f}s")
         model.train()
@@ -596,10 +615,15 @@ def train(
         )
         is_reduce_lr_on_plateau = isinstance(lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau)
 
-        if not with_dp:
-            model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
-
-        if (
+        # Load optimizer and LR scheduler states from the federated state if provided
+        if federated_state is not None:
+            if federated_state.get("optimizer_state") is not None:
+                optimizer.load_state_dict(federated_state["optimizer_state"])
+                _LOG.info("loaded optimizer state from federated state")
+            if federated_state.get("lr_scheduler_state") is not None:
+                lr_scheduler.load_state_dict(federated_state["lr_scheduler_state"])
+                _LOG.info("loaded LR scheduler state from federated state")
+        elif (
             model_state_strategy == ModelStateStrategy.resume
             and model_checkpoint.optimizer_and_lr_scheduler_paths_exist()
         ):
@@ -612,6 +636,9 @@ def train(
             lr_scheduler.load_state_dict(
                 torch.load(workspace.model_lr_scheduler_path, map_location=device, weights_only=True)
             )
+
+        if not with_dp:
+            model, optimizer, lr_scheduler = accelerator.prepare(model, optimizer, lr_scheduler)
 
         if device.type == "cuda":
             # this can help accelerate GPU compute
@@ -635,7 +662,13 @@ def train(
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning, message=".*Secure RNG turned off*")
                 privacy_engine = PrivacyEngine(accountant=dp_accountant)
-            if model_state_strategy == ModelStateStrategy.resume and workspace.model_dp_accountant_path.exists():
+            
+            # Load DP accountant state from a federated state if provided
+            if federated_state is not None and federated_state.get("dp_accountant_state") is not None:
+                _LOG.info("restore DP accountant state from federated state")
+                torch.serialization.add_safe_globals([getattr, PRVAccountant, RDPAccountant, GaussianAccountant])
+                privacy_engine.accountant.load_state_dict(federated_state["dp_accountant_state"])
+            elif model_state_strategy == ModelStateStrategy.resume and workspace.model_dp_accountant_path.exists():
                 _LOG.info("restore DP accountant state")
                 torch.serialization.add_safe_globals([getattr, PRVAccountant, RDPAccountant, GaussianAccountant])
                 privacy_engine.accountant.load_state_dict(
@@ -669,6 +702,7 @@ def train(
         trn_data_iter = iter(trn_dataloader)
         do_stop = False
         current_lr = initial_lr
+        val_loss = None
         forward_ctx_mgr = (
             torch.autocast(device_type=device.type, dtype=torch.bfloat16) if use_mixed_precision else nullcontext()
         )
@@ -870,10 +904,35 @@ def train(
 
     _LOG.info(f"TRAIN_LANGUAGE finished in {time.time() - t0_:.2f}s")
     
-    # Return model weights if federated training is requested
+    # Return comprehensive federated state if federated training is requested
     if federated_epochs is not None:
         if isinstance(model, GradSampleModule):
-            state_dict = model._module.state_dict()
+            model_weights = model._module.state_dict()
+        elif hasattr(model, "_orig_mod"):
+            # Handle accelerator-wrapped models
+            model_weights = model._orig_mod.state_dict()
         else:
-            state_dict = model.state_dict()
-        return state_dict
+            model_weights = model.state_dict()
+        
+        # Get final training metrics
+        final_val_loss = val_loss if 'val_loss' in locals() else None
+        
+        federated_state = {
+            "model_weights": model_weights,
+            "training_metrics": {
+                "epoch": epoch,
+                "steps": steps,
+                "samples": samples,
+                "learn_rate": current_lr,
+                "trn_loss": None,  # Language models don't track training loss the same way
+                "val_loss": final_val_loss
+            },
+            "optimizer_state": optimizer.state_dict(),
+            "lr_scheduler_state": lr_scheduler.state_dict()
+        }
+        
+        # Add DP accountant state if differential privacy is enabled
+        if with_dp and privacy_engine is not None:
+            federated_state["dp_accountant_state"] = privacy_engine.accountant.state_dict()
+        
+        return federated_state

@@ -355,6 +355,7 @@ def train(
     workspace_dir: str | Path = "engine-ws",
     update_progress: ProgressCallback | None = None,
     federated_epochs: int | None = None,
+    federated_state: dict | None = None,
 ) -> dict | None:
     _LOG.info("TRAIN_TABULAR started")
     t0 = time.time()
@@ -468,13 +469,29 @@ def train(
             argn = FlatModel(**model_kwargs)
         _LOG.info(f"model class: {argn.__class__.__name__}")
 
+        # Handle federated state if provided
+        if federated_state is not None:
+            _LOG.info("federated state provided, loading model weights and states")
+            _LOG.info(f"federated state contains: {list(federated_state.keys())}")
+            
+            # Load model weights if provided
+            if federated_state.get("model_weights") is not None:
+                _LOG.info("loading model weights from federated state")
+                argn.load_state_dict(federated_state["model_weights"])
+                _LOG.info("✓ successfully loaded model weights from federated state")
+            else:
+                _LOG.info("no model weights found in federated state")
+            
+            # Set model_state_strategy to resume when a federated state is provided
+            model_state_strategy = ModelStateStrategy.resume
+        
         if isinstance(model_state_strategy, str):
             model_state_strategy = ModelStateStrategy(model_state_strategy)
-        if not model_checkpoint.model_weights_path_exists():
+        if not model_checkpoint.model_weights_path_exists() and federated_state is None:
             _LOG.info(f"model weights not found; change strategy from {model_state_strategy} to RESET")
             model_state_strategy = ModelStateStrategy.reset
         _LOG.info(f"{model_state_strategy=}")
-        if model_state_strategy in [ModelStateStrategy.resume, ModelStateStrategy.reuse]:
+        if model_state_strategy in [ModelStateStrategy.resume, ModelStateStrategy.reuse] and federated_state is None:
             _LOG.info("load existing model weights")
             torch.serialization.add_safe_globals([np._core.multiarray.scalar, np.dtype, np.dtypes.Float64DType])
             load_model_weights(model=argn, path=workspace.model_tabular_weights_path, device=device)
@@ -601,7 +618,16 @@ def train(
             min_lr=0.1 * initial_lr,
             # threshold=0,  # if we prefer to completely mimic the behavior of previous implementation
         )
-        if (
+        
+        # Load optimizer and LR scheduler states from the federated state if provided
+        if federated_state is not None:
+            if federated_state.get("optimizer_state") is not None:
+                optimizer.load_state_dict(federated_state["optimizer_state"])
+                _LOG.info("loaded optimizer state from federated state")
+            if federated_state.get("lr_scheduler_state") is not None:
+                lr_scheduler.load_state_dict(federated_state["lr_scheduler_state"])
+                _LOG.info("loaded LR scheduler state from federated state")
+        elif (
             model_state_strategy == ModelStateStrategy.resume
             and model_checkpoint.optimizer_and_lr_scheduler_paths_exist()
         ):
@@ -637,7 +663,13 @@ def train(
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning, message=".*Secure RNG turned off*")
                 privacy_engine = PrivacyEngine(accountant=dp_accountant)
-            if model_state_strategy == ModelStateStrategy.resume and workspace.model_dp_accountant_path.exists():
+            
+            # Load DP accountant state from federated state if provided
+            if federated_state is not None and federated_state.get("dp_accountant_state") is not None:
+                _LOG.info("restore DP accountant state from federated state")
+                torch.serialization.add_safe_globals([getattr, PRVAccountant, RDPAccountant, GaussianAccountant])
+                privacy_engine.accountant.load_state_dict(federated_state["dp_accountant_state"])
+            elif model_state_strategy == ModelStateStrategy.resume and workspace.model_dp_accountant_path.exists():
                 _LOG.info("restore DP accountant state")
                 torch.serialization.add_safe_globals([getattr, PRVAccountant, RDPAccountant, GaussianAccountant])
                 privacy_engine.accountant.load_state_dict(
@@ -671,6 +703,7 @@ def train(
         trn_sample_losses: list[torch.Tensor] = []
         do_stop = False
         current_lr = initial_lr
+        val_loss = None
         # infinite loop over training steps, until we decide to stop
         # either because of max_epochs, max_training_time or early_stopping
         while not do_stop:
@@ -878,10 +911,33 @@ def train(
 
     _LOG.info(f"TRAIN_TABULAR finished in {time.time() - t0:.2f}s")
     
-    # Return model weights if federated training is requested
+    # Return comprehensive federated state if federated training is requested
     if federated_epochs is not None:
         if isinstance(argn, GradSampleModule):
-            state_dict = argn._module.state_dict()
+            model_weights = argn._module.state_dict()
         else:
-            state_dict = argn.state_dict()
-        return state_dict
+            model_weights = argn.state_dict()
+        
+        # Get final training metrics
+        final_val_loss = val_loss if 'val_loss' in locals() else None
+        final_trn_loss = _calculate_average_trn_loss(trn_sample_losses) if trn_sample_losses else None
+        
+        federated_state = {
+            "model_weights": model_weights,
+            "training_metrics": {
+                "epoch": epoch,
+                "steps": steps,
+                "samples": samples,
+                "learn_rate": current_lr,
+                "trn_loss": final_trn_loss,
+                "val_loss": final_val_loss
+            },
+            "optimizer_state": optimizer.state_dict(),
+            "lr_scheduler_state": lr_scheduler.state_dict()
+        }
+        
+        # Add DP accountant state if differential privacy is enabled
+        if with_dp and privacy_engine is not None:
+            federated_state["dp_accountant_state"] = privacy_engine.accountant.state_dict()
+        
+        return federated_state
