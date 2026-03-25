@@ -482,8 +482,8 @@ def train(
             else:
                 _LOG.info("no model weights found in federated state")
             
-            # Set model_state_strategy to resume when a federated state is provided
-            model_state_strategy = ModelStateStrategy.resume
+            # Set model_state_strategy to reset when a federated state is provided
+            model_state_strategy = ModelStateStrategy.reset
         
         if isinstance(model_state_strategy, str):
             model_state_strategy = ModelStateStrategy(model_state_strategy)

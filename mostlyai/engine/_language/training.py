@@ -416,8 +416,8 @@ def train(
         if federated_state is not None:
             _LOG.info("federated state provided, loading model weights and states")
             # For language models, we need to handle this differently based on the model type
-            # Set model_state_strategy to resume when a federated state is provided
-            model_state_strategy = ModelStateStrategy.resume
+            # Set model_state_strategy to reset when a federated state is provided
+            model_state_strategy = ModelStateStrategy.reset
             resume_from_last_checkpoint = False  # We'll load from a federated state instead
             model_id_or_path = model
         
