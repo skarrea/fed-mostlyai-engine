@@ -37,9 +37,8 @@ class TestConfig:
     MODEL_SIZE = "MOSTLY_AI/Small"  # Model size to use
 
     # Data generation parameters
-    TOTAL_SAMPLES = 300  # Total samples to create
-    TRAIN_SAMPLES = 200  # Samples used for training
-    TEST_SAMPLES = 100  # Samples used for quality testing
+    TOTAL_SAMPLES = 3000  # Total samples to create
+    TEST_SAMPLES = 1000  # Samples used for quality testing
 
     # Quality assessment
     GENERATE_HTML_REPORTS = False  # Set to True to generate HTML reports (slower)
@@ -73,18 +72,11 @@ except ImportError:
 
 
 def create_test_data():
-    """Create sample tabular data for testing."""
-    np.random.seed(42)
-    n_samples = 300  # Small dataset for faster testing
+    """Fetch sample tabular data for testing."""
 
-    data = pd.DataFrame({
-        'id': [f"id_{i}" for i in range(n_samples)],
-        'age': np.random.randint(18, 80, n_samples),
-        'income': np.random.normal(50000, 15000, n_samples).astype(int),
-        'category': np.random.choice(['A', 'B', 'C', 'D'], n_samples),
-        'score': np.random.uniform(0, 1, n_samples),
-        'active': np.random.choice([True, False], n_samples)
-    })
+    data = pd.read_csv(
+        "https://github.com/mostly-ai/public-demo-data/raw/dev/titanic/titanic.csv"
+    )
 
     return data
 
@@ -93,13 +85,15 @@ def setup_workspace(data, workspace_dir):
     """Set up a workspace with split, analyse, and encode steps."""
     split(
         tgt_data=data,
-        tgt_primary_key="id",
         tgt_encoding_types={
+            "survived": ModelEncodingType.tabular_categorical,
+            "pclass": ModelEncodingType.tabular_categorical,
+            "sex": ModelEncodingType.tabular_categorical,
             "age": ModelEncodingType.tabular_numeric_auto,
-            "income": ModelEncodingType.tabular_numeric_auto,
-            "category": ModelEncodingType.tabular_categorical,
-            "score": ModelEncodingType.tabular_numeric_auto,
-            "active": ModelEncodingType.tabular_categorical
+            "sibsp": ModelEncodingType.tabular_categorical,
+            "parch": ModelEncodingType.tabular_categorical,
+            "fare": ModelEncodingType.tabular_numeric_auto,
+            "embarked": ModelEncodingType.tabular_categorical
         },
         workspace_dir=workspace_dir
     )
@@ -375,7 +369,7 @@ def test_epoch_by_epoch_comparison():
 
     try:
         data = create_test_data()
-        print(f"Created test data with {len(data)} samples")
+        print(f"Fetched test data with {len(data)} samples")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Federated epoch-by-epoch training
@@ -531,7 +525,7 @@ def test_training_approach_comparison():
 
     try:
         data = create_test_data()
-        print(f"Created test data with {len(data)} samples")
+        print(f"Fetched test data with {len(data)} samples")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Test 1: Normal training
@@ -668,10 +662,10 @@ def test_data_generation_quality():
 
     try:
         data = create_test_data()
-        print(f"Created test data with {len(data)} samples")
+        print(f"Fetched test data with {len(data)} samples")
 
         # Use the same training data for both approaches
-        train_data = data.iloc[:TestConfig.TRAIN_SAMPLES].copy()
+        train_data = data.copy()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Set up the workspace for normal training
@@ -761,7 +755,7 @@ def test_data_generation_quality():
             print(f"\nStatistical comparison:")
             all_similar = True
 
-            for col in ['age', 'income', 'score']:
+            for col in ['age', 'fare']:
                 if col in normal_synthetic.columns:
                     try:
                         # Calculate statistics for both synthetic datasets
@@ -799,7 +793,7 @@ def test_data_generation_quality():
 
             # Categorical column comparison
             print(f"\nCategorical comparison:")
-            for col in ['category', 'active']:
+            for col in ['survived', 'pclass', 'sex', 'sibsp', 'parch', 'embarked']:
                 if col in normal_synthetic.columns:
                     try:
                         # Get value distributions
