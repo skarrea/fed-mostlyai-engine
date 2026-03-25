@@ -851,10 +851,9 @@ def train(
                 _LOG.info("received STOP EXECUTION signal")
                 do_stop = True
 
-            # check for max_epochs
-            if federated_epochs is not None and epoch >= federated_epochs:
-                do_stop = True
-            elif epoch > max_epochs:
+            # check whether to stop
+            epoch_limit = federated_epochs if federated_epochs is not None else max_epochs
+            if epoch >= epoch_limit:
                 do_stop = True
 
             # check for max_training_time
