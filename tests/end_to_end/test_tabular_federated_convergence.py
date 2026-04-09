@@ -918,6 +918,9 @@ def test_data_generation_quality():
 
                 except Exception as e:
                     print(f"  Warning: Could not run advanced quality assessment: {e}")
+                    print(f"  Note: The synthetic data is non-deterministic — the mostlyai-qa library may hit edge cases")
+                    print(f"  (e.g. duplicate labels after category trimming) depending on the generated data.")
+                    print(f"  Re-running the test with a different random seed may resolve it.")
                     return all_similar
             else:
                 print(f"\nBasic quality assessment (mostlyai-qa not available):")
