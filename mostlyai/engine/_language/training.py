@@ -520,7 +520,11 @@ def train(
         if federated_state is not None and federated_state.get("model_weights") is not None:
             _LOG.info("loading model weights from federated state")
             _LOG.info(f"federated state contains: {list(federated_state.keys())}")
-            model.load_state_dict(federated_state["model_weights"])
+            # TODO investigate HF model weight loading in federated context
+            # For PeftModel (non-LSTM): load_state_dict() expects only LoRA adapter keys
+            # For LSTM: load_state_dict() expects full model keys
+            # strict=True (default) ensures the keys match exactly — a mismatch will raise an error
+            model.load_state_dict(federated_state["model_weights"], strict=True)
             _LOG.info("✓ successfully loaded model weights from federated state")
         elif federated_state is not None:
             _LOG.info("no model weights found in federated state")
@@ -902,16 +906,24 @@ def train(
             upload_model_data_callback()
 
     _LOG.info(f"TRAIN_LANGUAGE finished in {time.time() - t0_:.2f}s")
-    
+
     # Return comprehensive federated state if federated training is requested
     if federated_epochs is not None:
+        # Unwrap to the actual model (PeftModel or LSTMFromScratch) before extracting weights
+        # This ensures we always get the correct state_dict format regardless of wrapping layers
         if isinstance(model, GradSampleModule):
-            model_weights = model._module.state_dict()
+            inner_model = model._module
         elif hasattr(model, "_orig_mod"):
-            # Handle accelerator-wrapped models
-            model_weights = model._orig_mod.state_dict()
+            inner_model = model._orig_mod
+        elif not with_dp and hasattr(accelerator, "unwrap_model"):
+            inner_model = accelerator.unwrap_model(model)
         else:
-            model_weights = model.state_dict()
+            inner_model = model
+
+        # For PeftModel (non-LSTM): state_dict() returns only LoRA adapter weights
+        # For LSTM: state_dict() returns full model weights
+        # Both are the correct format for load_state_dict() on the same model type
+        model_weights = inner_model.state_dict()
         
         # Get final training metrics
         final_val_loss = val_loss if 'val_loss' in locals() else None
