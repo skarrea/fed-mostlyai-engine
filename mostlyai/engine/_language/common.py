@@ -52,8 +52,19 @@ def get_attention_implementation(config: PretrainedConfig) -> str | None:
 
 
 def load_base_model_and_config(
-    model_id_or_path: str | Path, device: torch.device, is_peft_adapter: bool, is_training: bool
+    model_id_or_path: str | Path,
+    device: torch.device,
+    is_peft_adapter: bool,
+    is_training: bool,
+    *,
+    differential_privacy: bool = False,
 ) -> tuple[PreTrainedModel, PretrainedConfig]:
+    """Load a HF base model (and config) for language training or inference.
+
+    When ``differential_privacy`` is True (Opacus DP training), the loader prefers
+    settings that keep per-sample gradients well-defined: float32 weights, no int4
+    training path, eager attention (not fused SDPA), and no gradient checkpointing.
+    """
     # opacus DP does not support parallel/sharded training
     model_id_or_path = str(model_id_or_path)
     if is_peft_adapter:
@@ -79,7 +90,13 @@ def load_base_model_and_config(
             "CUDA device was found but bitsandbytes is not available. Please use extra [gpu] to install bitsandbytes for quantization."
         )
     bf16_supported = is_bf16_supported(device)
-    if bf16_supported:
+    # Opacus needs reliable per-sample grads; bfloat16 params + grad_sample hooks are a poor match on many setups.
+    use_int4_training = is_gpu_training and is_bitsandbytes_available and not differential_privacy
+    if differential_privacy:
+        torch_dtype = torch.float32
+        # Eager attention keeps standard backward paths; fused SDPA can break Opacus grad_sample hooks.
+        attn_implementation = "eager"
+    elif bf16_supported:
         attn_implementation = get_attention_implementation(config)
         torch_dtype = torch.bfloat16
     else:
@@ -87,7 +104,7 @@ def load_base_model_and_config(
         torch_dtype = torch.float32
     if hasattr(config, "quantization_config"):
         quantization_config = AutoQuantizationConfig.from_dict(config.quantization_config)
-    elif is_gpu_training and is_bitsandbytes_available:
+    elif use_int4_training:
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -123,8 +140,9 @@ def load_base_model_and_config(
     if isinstance(quantization_config, BitsAndBytesConfig):
         # convert all non-kbit layers to float32
         model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
-    if is_gpu_training and model.supports_gradient_checkpointing:
+    if is_gpu_training and model.supports_gradient_checkpointing and not differential_privacy:
         # pay 50% time penalty for _large_ memory savings
+        # gradient checkpointing breaks Opacus per-sample gradient hooks
         _LOG.info("enable gradient checkpointing")
         model.gradient_checkpointing_enable()
         model.enable_input_require_grads()

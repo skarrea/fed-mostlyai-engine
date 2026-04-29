@@ -233,7 +233,8 @@ def _gpu_estimate_max_batch_size(
     model: PreTrainedModel | GradSampleModule, device: torch.device, max_tokens: int, initial_batch_size: int
 ) -> int:
     batch_size = 2 ** int(np.log2(initial_batch_size))
-    optimizer = torch.optim.AdamW(params=model.parameters())
+    # Match training optimizer: only trainable params (e.g. LoRA), for consistent memory probe.
+    optimizer = torch.optim.AdamW(params=[p for p in model.parameters() if p.requires_grad])
 
     # create test batch of zeros with estimated max sequence length
     def create_test_batch(batch_size: int):
@@ -339,7 +340,8 @@ def train(
         _LOG.info(f"{torch.cuda.device_count()=}")
         bf16_supported = is_bf16_supported(device)
         _LOG.info(f"{bf16_supported=}")
-        use_mixed_precision = bf16_supported and model != LSTMFromScratchConfig.model_id
+        use_mixed_precision = bf16_supported and model != LSTMFromScratchConfig.model_id and not with_dp
+        # DP uses float32 + no autocast (see load_base_model_and_config); bf16 autocast breaks Opacus grad_sample.
         _LOG.info(f"{use_mixed_precision=}")
 
         ctx_stats = workspace.ctx_stats.read()
@@ -450,7 +452,11 @@ def train(
             if resume_from_last_checkpoint:
                 tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, **tokenizer_args)
                 model, _ = load_base_model_and_config(
-                    model_id_or_path, device=device, is_peft_adapter=False, is_training=True
+                    model_id_or_path,
+                    device=device,
+                    is_peft_adapter=False,
+                    is_training=True,
+                    differential_privacy=with_dp,
                 )
             else:
                 # fresh initialization of the custom tokenizer and LSTM model
@@ -468,6 +474,7 @@ def train(
                 device=device,
                 is_peft_adapter=resume_from_last_checkpoint,
                 is_training=True,
+                differential_privacy=with_dp,
             )
             tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, **tokenizer_args)
             if tokenizer.eos_token is None:
@@ -584,7 +591,10 @@ def train(
             batch_size=val_batch_size,
             collate_fn=data_collator,
         )
-        optimizer = torch.optim.AdamW(params=model.parameters(), lr=initial_lr)
+        optimizer = torch.optim.AdamW(
+            params=[p for p in model.parameters() if p.requires_grad],
+            lr=initial_lr,
+        )  # frozen PEFT base weights must not be in Opacus optimizer (no grad_sample on unused params)
         early_stopper = EarlyStopper(val_loss_patience=4)
         lr_scheduler: LRScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer=optimizer,
