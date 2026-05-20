@@ -31,7 +31,7 @@ from datasets import Dataset, DatasetDict, disable_progress_bar, load_dataset
 from huggingface_hub import get_safetensors_metadata
 from opacus import GradSampleModule, PrivacyEngine
 from opacus.accountants import GaussianAccountant, PRVAccountant, RDPAccountant
-from opacus.grad_sample import register_grad_sampler
+from opacus.grad_sample import GradSampleHooks, register_grad_sampler
 from opacus.utils.batch_memory_manager import wrap_data_loader
 from peft import LoraConfig, PeftModel
 from torch import nn
@@ -233,7 +233,8 @@ def _gpu_estimate_max_batch_size(
     model: PreTrainedModel | GradSampleModule, device: torch.device, max_tokens: int, initial_batch_size: int
 ) -> int:
     batch_size = 2 ** int(np.log2(initial_batch_size))
-    optimizer = torch.optim.AdamW(params=model.parameters())
+    # Match training optimizer: only trainable params (e.g. LoRA), for consistent memory probe.
+    optimizer = torch.optim.AdamW(params=[p for p in model.parameters() if p.requires_grad])
 
     # create test batch of zeros with estimated max sequence length
     def create_test_batch(batch_size: int):
@@ -341,7 +342,8 @@ def train(
         _LOG.info(f"{torch.cuda.device_count()=}")
         bf16_supported = is_bf16_supported(device)
         _LOG.info(f"{bf16_supported=}")
-        use_mixed_precision = bf16_supported and model != LSTMFromScratchConfig.model_id
+        use_mixed_precision = bf16_supported and model != LSTMFromScratchConfig.model_id and not with_dp
+        # DP uses float32 + no autocast (see load_base_model_and_config); bf16 autocast breaks Opacus grad_sample.
         _LOG.info(f"{use_mixed_precision=}")
 
         ctx_stats = workspace.ctx_stats.read()
@@ -461,7 +463,11 @@ def train(
             if resume_from_last_checkpoint:
                 tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, **tokenizer_args)
                 model, _ = load_base_model_and_config(
-                    model_id_or_path, device=device, is_peft_adapter=False, is_training=True
+                    model_id_or_path,
+                    device=device,
+                    is_peft_adapter=False,
+                    is_training=True,
+                    differential_privacy=with_dp,
                 )
             else:
                 # fresh initialization of the custom tokenizer and LSTM model
@@ -479,6 +485,7 @@ def train(
                 device=device,
                 is_peft_adapter=resume_from_last_checkpoint,
                 is_training=True,
+                differential_privacy=with_dp,
             )
             tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, **tokenizer_args)
             if tokenizer.eos_token is None:
@@ -608,7 +615,10 @@ def train(
             batch_size=val_batch_size,
             collate_fn=data_collator,
         )
-        optimizer = torch.optim.AdamW(params=model.parameters(), lr=initial_lr)
+        optimizer = torch.optim.AdamW(
+            params=[p for p in model.parameters() if p.requires_grad],
+            lr=initial_lr,
+        )  # frozen PEFT base weights must not be in Opacus optimizer (no grad_sample on unused params)
         early_stopper = EarlyStopper(val_loss_patience=4)
         lr_scheduler: LRScheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer=optimizer,
@@ -648,6 +658,7 @@ def train(
             # this can help accelerate GPU compute
             torch.backends.cudnn.benchmark = True
 
+        dp_grad_sample_hooks: GradSampleHooks | None = None
         if with_dp:
             if isinstance(differential_privacy, DifferentialPrivacyConfig):
                 dp_config = differential_privacy.model_dump()
@@ -678,18 +689,21 @@ def train(
                 privacy_engine.accountant.load_state_dict(
                     torch.load(workspace.model_dp_accountant_path, map_location=device, weights_only=True),
                 )
-            # Opacus will return the modified objects
-            # - model: wrapped in GradSampleModule and contains additional hooks for computing per-sample gradients
-            # - optimizer: wrapped in DPOptimizer and will do different operations during virtual steps and logical steps
-            # - dataloader: the dataloader with batch_sampler=UniformWithReplacementSampler (for Poisson sampling)
-            model, optimizer, trn_dataloader = privacy_engine.make_private(
+            # Opacus returns GradSampleHooks when wrap_model=False: hooks attach to the original module so HF /
+            # Transformers sees an unwrapped PreTrainedModel (requires Opacus >= 1.6).
+            # - dp_grad_sample_hooks: must call .cleanup() after training to remove backward hooks and param attrs
+            # - optimizer: wrapped in DPOptimizer (virtual vs logical steps)
+            # - dataloader: UniformWithReplacementSampler when poisson_sampling=True
+            dp_grad_sample_hooks, optimizer, trn_dataloader = privacy_engine.make_private(
                 module=model,
                 optimizer=optimizer,
                 data_loader=trn_dataloader,
                 noise_multiplier=dp_config.get("noise_multiplier"),
                 max_grad_norm=dp_config.get("max_grad_norm"),
                 poisson_sampling=True,
+                wrap_model=False,
             )
+            model = dp_grad_sample_hooks._module
             # this further wraps the dataloader with batch_sampler=BatchSplittingSampler to achieve gradient accumulation
             # it will split the sampled logical batches into smaller sub-batches with batch_size
             trn_dataloader = wrap_data_loader(
@@ -864,6 +878,9 @@ def train(
             total_training_time = total_time_init + time.time() - start_trn_time
             if total_training_time > max_training_time:
                 do_stop = True
+
+        if dp_grad_sample_hooks is not None:
+            dp_grad_sample_hooks.cleanup()
 
         # no checkpoint is saved yet because the training stopped before the first epoch ended
         if not model_checkpoint.has_saved_once():

@@ -14,11 +14,6 @@
 
 from __future__ import annotations
 
-import os
-
-os.environ["VLLM_USE_V1"] = "1"
-
-
 import time
 from os import PathLike
 
@@ -28,7 +23,7 @@ from pydantic import BaseModel
 from transformers import AutoConfig, AutoTokenizer
 from vllm import LLM, SamplingParams
 from vllm.distributed import cleanup_dist_env_and_memory
-from vllm.inputs.data import TokensPrompt
+from vllm.inputs.llm import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.sampling_params import StructuredOutputsParams
 

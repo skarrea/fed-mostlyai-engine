@@ -22,6 +22,17 @@ from transformers.modeling_outputs import CausalLMOutput
 _LOG = logging.getLogger(__name__)
 
 
+def _dplstm_state_dict_aliases(num_layers: int) -> dict[str, str]:
+    """Nested DPLSTM names -> flat ``nn.LSTM`` names (same storage; needed for checkpoint save)."""
+    aliases: dict[str, str] = {}
+    for i in range(num_layers):
+        aliases[f"lstm.l{i}.ih.weight"] = f"lstm.weight_ih_l{i}"
+        aliases[f"lstm.l{i}.ih.bias"] = f"lstm.bias_ih_l{i}"
+        aliases[f"lstm.l{i}.hh.weight"] = f"lstm.weight_hh_l{i}"
+        aliases[f"lstm.l{i}.hh.bias"] = f"lstm.bias_hh_l{i}"
+    return aliases
+
+
 class LSTMFromScratchConfig(PretrainedConfig):
     model_type = model_id = "MOSTLY_AI/LSTMFromScratch-3m"
 
@@ -54,7 +65,6 @@ class LSTMFromScratchLMHeadModel(PreTrainedModel, GenerationMixin):
 
     def __init__(self, config: LSTMFromScratchConfig):
         super().__init__(config)
-        self.config = config
 
         self.embedding = nn.Embedding(self.config.vocab_size, self.config.embedding_size)
         self.dropout = nn.Dropout(self.config.dropout)
@@ -76,6 +86,28 @@ class LSTMFromScratchLMHeadModel(PreTrainedModel, GenerationMixin):
 
         # this will be filled by left_to_right_padding() during the generation
         self.pad_token_id = None
+
+        # `_tied_weights_keys` is always a dict: empty unless DP (see `remove_tied_weights_from_state_dict`).
+        self._tied_weights_keys = _dplstm_state_dict_aliases(self.config.num_layers) if self.config.with_dp else {}
+
+        self.post_init()
+
+    def _init_weights(self, module: nn.Module) -> None:
+        # Keep PyTorch defaults for our main modules (historical behavior). HF post_init()
+        # still runs init_weights on the rest (e.g. any submodules inside DPLSTM).
+        if module in (self.embedding, self.lm_head, self.lstm):
+            return
+        super()._init_weights(module)
+
+    def get_expanded_tied_weights_keys(self, all_submodels: bool = False) -> dict[str, str]:
+        """
+        Transformers >= 5 sets `all_tied_weights_keys` from this. `self._tied_weights_keys` is also read when
+        saving (see `remove_tied_weights_from_state_dict`). Keep both in sync for DPLSTM aliases.
+        """
+        expanded = getattr(super(), "get_expanded_tied_weights_keys", None)
+        out: dict[str, str] = dict(expanded(all_submodels=all_submodels)) if expanded is not None else {}
+        out.update(self._tied_weights_keys)
+        return out
 
     def forward(
         self,

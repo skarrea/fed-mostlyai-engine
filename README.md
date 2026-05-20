@@ -62,10 +62,13 @@ or alternatively for a GPU setup (needed for LLM finetuning and inference):
 uv pip install -U 'mostlyai-engine[gpu]'
 ```
 
-On Linux, one can explicitly install the CPU-only variant of torch together with `mostlyai-engine`:
+On Linux, one can explicitly install the CPU-only variant of PyTorch together with `mostlyai-engine`:
 
 ```bash
-uv pip install -U torch==2.9.1+cpu torchvision==0.24.1+cpu mostlyai-engine --extra-index-url https://download.pytorch.org/whl/cpu
+uv pip install --index-strategy unsafe-first-match -U \
+  torch==2.11.0+cpu torchvision==0.26.0+cpu torchaudio==2.11.0+cpu \
+  mostlyai-engine \
+  --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
 ## TabularARGN for Flat Data
@@ -140,10 +143,15 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 
 # predict class labels for a categorical
 predictions = argn.predict(data_test, target="income", n_draws=100, agg_fn="mode")
+# model-conditional class probabilities (same inputs as predict; target column dropped from seed)
+probabilities = argn.predict_proba(data_test, target="income")
 
 # evaluate performance
-accuracy = accuracy_score(data_test["income"], predictions)
-auc = roc_auc_score(data_test["income"], probabilities[:, 1])
+accuracy = accuracy_score(data_test["income"], predictions["income"])
+# AUC: sklearn needs binary 0/1 targets and scores for the "positive" class (here: second category)
+pos_label = probabilities.columns[1]
+y_true_bin = (data_test["income"] == pos_label).astype(int)
+auc = roc_auc_score(y_true_bin, probabilities[pos_label])
 print(f"Accuracy: {accuracy:.3f}, AUC: {auc:.3f}")
 ```
 
@@ -254,7 +262,7 @@ argn.sample(ctx_data=ctx_data)
 
 The `LanguageModel` class provides a scikit-learn-compatible interface for working with semi-structured textual data. It leverages pre-trained language models or trains lightweight LSTM models from scratch to generate synthetic text data.
 
-**Note**: The default model is `MOSTLY_AI/LSTMFromScratch-3m`, a lightweight LSTM model trained from scratch (GPU strongly recommended). You can also use pre-trained HuggingFace models by setting model to e.g. `microsoft/phi-1.5` (GPU required).
+**Note**: The default model is `MOSTLY_AI/LSTMFromScratch-3m`, a lightweight LSTM model trained from scratch (GPU strongly recommended). You can also use pretrained Hugging Face models (`model="<hub/repo>"`; GPU required). Verified checkpoints include `HuggingFaceTB/SmolLM2-135M`, `HuggingFaceTB/SmolLM3-3B`, `Qwen/Qwen3-0.6B`, and `microsoft/phi-4`.
 
 ### Model Training
 
@@ -309,5 +317,5 @@ lm.sample(
 
 Example notebooks demonstrating various use cases are available in the `examples` directory:
 - TabularARGN for flat tabular data [![Run on Colab](https://img.shields.io/badge/Open%20in-Colab-blue?logo=google-colab)](https://colab.research.google.com/github/mostly-ai/mostlyai-engine/blob/main/examples/flat.ipynb)
-- TabularARGN for sequential data [![Run on Colab](https://img.shields.io/badge/Open%20in-Colab-blue?logo=google-colab)](https://colab.research.google.com/github/mostly-ai/mostlyai-engine/blob/main/examples/language.ipynb)
-- LanguageModel for textual data [![Run on Colab](https://img.shields.io/badge/Open%20in-Colab-blue?logo=google-colab)](https://colab.research.google.com/github/mostly-ai/mostlyai-engine/blob/main/examples/sequential.ipynb)
+- TabularARGN for sequential data [![Run on Colab](https://img.shields.io/badge/Open%20in-Colab-blue?logo=google-colab)](https://colab.research.google.com/github/mostly-ai/mostlyai-engine/blob/main/examples/sequential.ipynb)
+- LanguageModel for textual data [![Run on Colab](https://img.shields.io/badge/Open%20in-Colab-blue?logo=google-colab)](https://colab.research.google.com/github/mostly-ai/mostlyai-engine/blob/main/examples/language.ipynb)
