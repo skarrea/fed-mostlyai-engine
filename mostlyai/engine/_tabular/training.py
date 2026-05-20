@@ -912,10 +912,8 @@ def train(
     
     # Return comprehensive federated state if federated training is requested
     if federated_epochs is not None:
-        if isinstance(argn, GradSampleModule):
-            model_weights = argn._module.state_dict()
-        else:
-            model_weights = argn.state_dict()
+        module = argn._module if isinstance(argn, GradSampleModule) else argn
+        model_weights = {k: v.detach().cpu().numpy() for k, v in module.state_dict().items()}
         
         # Get final training metrics
         final_val_loss = val_loss if 'val_loss' in locals() else None
@@ -930,9 +928,7 @@ def train(
                 "learn_rate": current_lr,
                 "trn_loss": final_trn_loss,
                 "val_loss": final_val_loss
-            },
-            "optimizer_state": optimizer.state_dict(),
-            "lr_scheduler_state": lr_scheduler.state_dict()
+            }
         }
         
         # Add DP accountant state if differential privacy is enabled
