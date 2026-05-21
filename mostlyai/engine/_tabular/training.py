@@ -838,15 +838,26 @@ class Trainer:
             self.privacy_engine.accountant.load_state_dict(
                 torch.load(self.workspace.model_dp_accountant_path, map_location=self.device, weights_only=True)
             )
-        # Opacus wraps model/optimizer/dataloader
-        self.model, self.optimizer, self.trn_dataloader = self.privacy_engine.make_private(
-            module=self.model,
-            optimizer=self.optimizer,
-            data_loader=self.trn_dataloader,
-            noise_multiplier=self.dp_config.get("noise_multiplier"),
-            max_grad_norm=self.dp_config.get("max_grad_norm"),
-            poisson_sampling=True,
-        )
+
+        # Opacus wraps model/optimizer/dataloader.
+        # To ensure deterministic Poisson sampling and avoid the empty-first-batch edge case
+        # (see opacus issue #676), seed the global torch RNG before calling make_private().
+        # This is important because the refactored setup order changes when random draws occur.
+        # We save/restore the RNG state so the seeding only affects Opacus' sampler initialization.
+        rng_state = torch.get_rng_state()
+        try:
+            torch.manual_seed(0)  # Deterministic seed for Poisson sampler
+            self.model, self.optimizer, self.trn_dataloader = self.privacy_engine.make_private(
+                module=self.model,
+                optimizer=self.optimizer,
+                data_loader=self.trn_dataloader,
+                noise_multiplier=self.dp_config.get("noise_multiplier"),
+                max_grad_norm=self.dp_config.get("max_grad_norm"),
+                poisson_sampling=True,
+            )
+        finally:
+            torch.set_rng_state(rng_state)  # Restore RNG to pre-seeding state
+
         self.trn_dataloader = wrap_data_loader(
             data_loader=self.trn_dataloader, max_batch_size=self.batch_size, optimizer=self.optimizer
         )
