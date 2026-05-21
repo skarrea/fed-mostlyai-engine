@@ -201,7 +201,7 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
             print(f"    Federated state contains: {list(result.keys())}")
 
             # Verify the federated state has the expected structure
-            expected_keys = {"model_weights", "training_metrics", "optimizer_state", "lr_scheduler_state"}
+            expected_keys = {"model_weights", "training_metrics"}
             actual_keys = set(result.keys())
             missing_keys = expected_keys - actual_keys
             if missing_keys:
@@ -1001,9 +1001,7 @@ def test_enhanced_federated_state_pattern():
             # Create a partial federated state (missing optimiser and LR scheduler state)
             partial_federated_state = {
                 "model_weights": result2["model_weights"],
-                "training_metrics": result2["training_metrics"],
-                "optimizer_state": None,  # Missing optimiser state
-                "lr_scheduler_state": None  # Missing LR scheduler state
+                "training_metrics": result2["training_metrics"]
             }
 
             result3 = train(
@@ -1025,9 +1023,7 @@ def test_enhanced_federated_state_pattern():
 
             minimal_federated_state = {
                 "model_weights": result3["model_weights"],
-                "training_metrics": result3["training_metrics"],
-                "optimizer_state": None,
-                "lr_scheduler_state": None
+                "training_metrics": result3["training_metrics"]
             }
 
             result4 = train(
@@ -1048,7 +1044,7 @@ def test_enhanced_federated_state_pattern():
             print("\n5. Verifying federated state structure consistency...")
 
             all_states = [result1, result2, result3, result4]
-            expected_keys = {"model_weights", "training_metrics", "optimizer_state", "lr_scheduler_state"}
+            expected_keys = {"model_weights", "training_metrics"}
 
             for i, state in enumerate(all_states, 1):
                 actual_keys = set(state.keys())
