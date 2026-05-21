@@ -422,7 +422,7 @@ def train(
             model_state_strategy = ModelStateStrategy.reset
             resume_from_last_checkpoint = False  # We'll load from a federated state instead
             model_id_or_path = model
-        
+
         # check how to handle existing model weights
         if isinstance(model_state_strategy, str):
             model_state_strategy = ModelStateStrategy(model_state_strategy)
@@ -677,7 +677,7 @@ def train(
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=UserWarning, message=".*Secure RNG turned off*")
                 privacy_engine = PrivacyEngine(accountant=dp_accountant)
-            
+
             # Load DP accountant state from a federated state if provided
             if federated_state is not None and federated_state.get("dp_accountant_state") is not None:
                 _LOG.info("restore DP accountant state from federated state")
@@ -941,10 +941,10 @@ def train(
         # For LSTM: state_dict() returns full model weights
         # Both are the correct format for load_state_dict() on the same model type
         model_weights = inner_model.state_dict()
-        
+
         # Get final training metrics
-        final_val_loss = val_loss if 'val_loss' in locals() else None
-        
+        final_val_loss = val_loss if "val_loss" in locals() else None
+
         federated_state = {
             "model_weights": model_weights,
             "training_metrics": {
@@ -953,14 +953,14 @@ def train(
                 "samples": samples,
                 "learn_rate": current_lr,
                 "trn_loss": None,  # Language models don't track training loss the same way
-                "val_loss": final_val_loss
+                "val_loss": final_val_loss,
             },
             "optimizer_state": optimizer.state_dict(),
-            "lr_scheduler_state": lr_scheduler.state_dict()
+            "lr_scheduler_state": lr_scheduler.state_dict(),
         }
-        
+
         # Add DP accountant state if differential privacy is enabled
         if with_dp and privacy_engine is not None:
             federated_state["dp_accountant_state"] = privacy_engine.accountant.state_dict()
-        
+
         return federated_state

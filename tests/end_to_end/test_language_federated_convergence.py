@@ -33,6 +33,7 @@ from mostlyai.engine._workspace import Workspace
 # ============================================
 class TestConfig:
     """Centralised configuration for test parameters"""
+
     # Training parameters
     EPOCHS_PER_ITERATION = 1  # Number of epochs per federated iteration
     MAX_EPOCHS = 10  # Maximum number of epochs for training
@@ -80,14 +81,7 @@ def create_test_data():
     data = pd.DataFrame(
         {
             "gender": ["m", "f", "x", pd.NA] * int(no_of_records / 4),
-            "bio": list(
-                chain(
-                    *[
-                        [f"Joe {i}", f"Anna {i}", pd.NA, pd.NA]
-                        for i in range(int(no_of_records / 4))
-                    ]
-                )
-            ),
+            "bio": list(chain(*[[f"Joe {i}", f"Anna {i}", pd.NA, pd.NA] for i in range(int(no_of_records / 4))])),
         }
     )
     return data
@@ -156,9 +150,7 @@ def train_federated_model(
     (containing model weights, optimiser state, LR scheduler state, and DP accountant state) are
     passed between training iterations instead of relying on workspace files.
     """
-    print(
-        f"\n--- Federated Training (total_epochs={total_epochs}, epochs_per_iteration={epochs_per_iteration}) ---"
-    )
+    print(f"\n--- Federated Training (total_epochs={total_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
 
     weights_history = []
     loss_history = []
@@ -312,9 +304,7 @@ def train_epoch_by_epoch(
     - Provides progress monitoring and detailed logging for debugging and understanding
     - Tests the core federated training pattern with fixed epochs per iteration
     """
-    print(
-        f"\n--- Epoch-by-Epoch Training (total_epochs={max_epochs}, epochs_per_iteration={epochs_per_iteration}) ---"
-    )
+    print(f"\n--- Epoch-by-Epoch Training (total_epochs={max_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
 
     weights_history = []
     loss_history = []
@@ -557,8 +547,8 @@ def test_training_approach_comparison():
             print(f"\nSetting up federated training workspace: {federated_workspace}")
             setup_workspace(data, federated_workspace)
 
-            federated_weights, intermediate_val_loss, federated_val_loss, federated_time = (
-                train_federated_model(federated_workspace)
+            federated_weights, intermediate_val_loss, federated_val_loss, federated_time = train_federated_model(
+                federated_workspace
             )
 
             # Comparison results
@@ -683,21 +673,27 @@ def test_data_generation_quality():
             print("\n" + "=" * 80)
             print("ORIGINAL TRAINING DATA (first 20 rows)")
             print("=" * 80)
-            with pd.option_context("display.max_rows", 20, "display.max_columns", None, "display.width", 200, "display.max_colwidth", 80):
+            with pd.option_context(
+                "display.max_rows", 20, "display.max_columns", None, "display.width", 200, "display.max_colwidth", 80
+            ):
                 print(train_data.head(20).to_string(index=True))
 
             # --- Normal synthetic data (all rows) ---
             print("\n" + "=" * 80)
             print(f"NORMAL SYNTHETIC DATA ({len(normal_synthetic)} rows)")
             print("=" * 80)
-            with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 200, "display.max_colwidth", 80):
+            with pd.option_context(
+                "display.max_rows", None, "display.max_columns", None, "display.width", 200, "display.max_colwidth", 80
+            ):
                 print(normal_synthetic.to_string(index=True))
 
             # --- Federated synthetic data (all rows) ---
             print("\n" + "=" * 80)
             print(f"FEDERATED SYNTHETIC DATA ({len(federated_synthetic)} rows)")
             print("=" * 80)
-            with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 200, "display.max_colwidth", 80):
+            with pd.option_context(
+                "display.max_rows", None, "display.max_columns", None, "display.width", 200, "display.max_colwidth", 80
+            ):
                 print(federated_synthetic.to_string(index=True))
 
             # --- Side-by-side sample comparison (first 20 rows) ---
@@ -711,7 +707,9 @@ def test_data_generation_quality():
             for col in display_cols:
                 side_by_side[f"normal_{col}"] = normal_synthetic[col].iloc[:n_preview].values
                 side_by_side[f"fed_{col}"] = federated_synthetic[col].iloc[:n_preview].values
-            with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 240, "display.max_colwidth", 60):
+            with pd.option_context(
+                "display.max_rows", None, "display.max_columns", None, "display.width", 240, "display.max_colwidth", 60
+            ):
                 print(side_by_side.to_string(index=True))
 
             # ============================================================
@@ -758,10 +756,7 @@ def test_data_generation_quality():
                         # Calculate total variation distance
                         all_values_set = set(normal_dist.index) | set(fed_dist.index)
                         tv_distance = 0.5 * sum(
-                            abs(
-                                normal_dist.get(val, 0) - fed_dist.get(val, 0)
-                            )
-                            for val in all_values_set
+                            abs(normal_dist.get(val, 0) - fed_dist.get(val, 0)) for val in all_values_set
                         )
 
                         similar = tv_distance < TestConfig.QUALITY_TOLERANCE
@@ -790,9 +785,7 @@ def test_data_generation_quality():
                         normal_avg_len = normal_synthetic[col].dropna().str.len().mean()
                         fed_avg_len = federated_synthetic[col].dropna().str.len().mean()
                         if normal_avg_len > 0 and fed_avg_len > 0:
-                            avg_len_rel_diff = abs(normal_avg_len - fed_avg_len) / max(
-                                normal_avg_len, fed_avg_len
-                            )
+                            avg_len_rel_diff = abs(normal_avg_len - fed_avg_len) / max(normal_avg_len, fed_avg_len)
                         else:
                             avg_len_rel_diff = 0.0
 

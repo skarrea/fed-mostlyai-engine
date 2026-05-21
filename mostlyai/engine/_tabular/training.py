@@ -468,6 +468,7 @@ class Trainer:
         self.total_time_init = 0.0
         self.early_exit = False
         self._is_setup = False
+
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
@@ -726,11 +727,11 @@ class Trainer:
         if for_validation_only:
             # In validation mode, only attempt to load weights from disk if explicitly resume/reuse;
             # never clear or touch other checkpoint files.
-            if self.model_state_strategy in (ModelStateStrategy.resume, ModelStateStrategy.reuse) and \
-                    self.model_checkpoint.model_weights_path_exists():
-                torch.serialization.add_safe_globals(
-                    [np._core.multiarray.scalar, np.dtype, np.dtypes.Float64DType]
-                )
+            if (
+                self.model_state_strategy in (ModelStateStrategy.resume, ModelStateStrategy.reuse)
+                and self.model_checkpoint.model_weights_path_exists()
+            ):
+                torch.serialization.add_safe_globals([np._core.multiarray.scalar, np.dtype, np.dtypes.Float64DType])
                 load_model_weights(
                     model=self.model,
                     path=self.workspace.model_tabular_weights_path,
@@ -738,12 +739,12 @@ class Trainer:
                 )
             return
 
-        if self.model_state_strategy in (ModelStateStrategy.resume, ModelStateStrategy.reuse) \
-                and self.federated_state is None:
+        if (
+            self.model_state_strategy in (ModelStateStrategy.resume, ModelStateStrategy.reuse)
+            and self.federated_state is None
+        ):
             _LOG.info("load existing model weights from disk")
-            torch.serialization.add_safe_globals(
-                [np._core.multiarray.scalar, np.dtype, np.dtypes.Float64DType]
-            )
+            torch.serialization.add_safe_globals([np._core.multiarray.scalar, np.dtype, np.dtypes.Float64DType])
             load_model_weights(
                 model=self.model,
                 path=self.workspace.model_tabular_weights_path,
@@ -835,9 +836,7 @@ class Trainer:
             _LOG.info("restore DP accountant state from disk")
             torch.serialization.add_safe_globals([getattr, PRVAccountant, RDPAccountant, GaussianAccountant])
             self.privacy_engine.accountant.load_state_dict(
-                torch.load(
-                    self.workspace.model_dp_accountant_path, map_location=self.device, weights_only=True
-                )
+                torch.load(self.workspace.model_dp_accountant_path, map_location=self.device, weights_only=True)
             )
         # Opacus wraps model/optimizer/dataloader
         self.model, self.optimizer, self.trn_dataloader = self.privacy_engine.make_private(
@@ -856,9 +855,7 @@ class Trainer:
         for pg in self.optimizer.param_groups:
             pg["lr"] = self.fixed_learning_rate
         self.current_lr = self.fixed_learning_rate
-        _LOG.info(
-            f"fixed_learning_rate={self.fixed_learning_rate}: local LR scheduler will be skipped this round"
-        )
+        _LOG.info(f"fixed_learning_rate={self.fixed_learning_rate}: local LR scheduler will be skipped this round")
 
     # ------------------------------------------------------------------
     # Training loop
@@ -931,11 +928,10 @@ class Trainer:
                 trn_loss = _calculate_average_trn_loss(trn_sample_losses)
                 dp_total_epsilon = (
                     self.privacy_engine.get_epsilon(self.dp_total_delta) + self.dp_value_protection_epsilon
-                    if self.with_dp else None
+                    if self.with_dp
+                    else None
                 )
-                has_exceeded_dp_max_epsilon = (
-                    dp_total_epsilon > self.dp_max_epsilon if self.with_dp else False
-                )
+                has_exceeded_dp_max_epsilon = dp_total_epsilon > self.dp_max_epsilon if self.with_dp else False
                 if not has_exceeded_dp_max_epsilon:
                     is_checkpoint = self.model_checkpoint.save_checkpoint_if_best(
                         val_loss=self.val_loss,
@@ -978,7 +974,8 @@ class Trainer:
                 )
                 dp_total_epsilon = (
                     self.privacy_engine.get_epsilon(self.dp_total_delta) + self.dp_value_protection_epsilon
-                    if self.with_dp else None
+                    if self.with_dp
+                    else None
                 )
                 progress_message = ProgressMessage(
                     epoch=self.epoch,
@@ -1041,7 +1038,8 @@ class Trainer:
             self.val_loss = self._calculate_val_loss_internal()
         dp_total_epsilon = (
             self.privacy_engine.get_epsilon(self.dp_total_delta) + self.dp_value_protection_epsilon
-            if self.with_dp else None
+            if self.with_dp
+            else None
         )
         trn_loss = _calculate_average_trn_loss(trn_sample_losses)
         progress_message = ProgressMessage(
@@ -1122,9 +1120,7 @@ class Trainer:
                     lr_from_msg = resume_msg.get("learn_rate", None)
                     if lr_from_msg is not None:
                         self.initial_lr = lr_from_msg
-                    _LOG.info(
-                        f"start training progress from epoch={self.epoch}, steps={self.steps}"
-                    )
+                    _LOG.info(f"start training progress from epoch={self.epoch}, steps={self.steps}")
             self._setup(for_validation_only=False)
             if self.early_exit:
                 return None

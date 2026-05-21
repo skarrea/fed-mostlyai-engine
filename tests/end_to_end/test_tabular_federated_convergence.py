@@ -31,6 +31,7 @@ from mostlyai.engine._workspace import Workspace
 # ============================================
 class TestConfig:
     """Centralised configuration for test parameters"""
+
     # Training parameters
     EPOCHS_PER_ITERATION = 1  # Numbers of epochs per federated iteration
     MAX_EPOCHS = 20  # Maximum number of epochs for training
@@ -74,9 +75,7 @@ except ImportError:
 def create_test_data():
     """Fetch sample tabular data for testing."""
 
-    data = pd.read_csv(
-        "https://github.com/mostly-ai/public-demo-data/raw/dev/titanic/titanic.csv"
-    )
+    data = pd.read_csv("https://github.com/mostly-ai/public-demo-data/raw/dev/titanic/titanic.csv")
 
     return data
 
@@ -93,9 +92,9 @@ def setup_workspace(data, workspace_dir):
             "sibsp": ModelEncodingType.tabular_categorical,
             "parch": ModelEncodingType.tabular_categorical,
             "fare": ModelEncodingType.tabular_numeric_auto,
-            "embarked": ModelEncodingType.tabular_categorical
+            "embarked": ModelEncodingType.tabular_categorical,
         },
-        workspace_dir=workspace_dir
+        workspace_dir=workspace_dir,
     )
     analyze(workspace_dir=workspace_dir)
     encode(workspace_dir=workspace_dir)
@@ -106,11 +105,7 @@ def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=Te
     print(f"\n--- Normal Training (max_epochs={max_epochs}) ---")
     start_time = time.time()
 
-    result = train(
-        workspace_dir=workspace_dir,
-        max_epochs=max_epochs,
-        model=model
-    )
+    result = train(workspace_dir=workspace_dir, max_epochs=max_epochs, model=model)
 
     training_time = time.time() - start_time
     print(f"Normal training completed in {training_time:.2f} seconds")
@@ -124,23 +119,27 @@ def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=Te
         try:
             progress_df = pd.read_csv(progress_messages_path)
             if not progress_df.empty:
-                final_val_loss = progress_df.iloc[-1].get('val_loss')
+                final_val_loss = progress_df.iloc[-1].get("val_loss")
         except Exception as e:
             print(f"Warning: Could not read progress messages: {e}")
 
     return result, final_val_loss, training_time
 
 
-def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
-                          epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
+def train_federated_model(
+    workspace_dir,
+    total_epochs=TestConfig.MAX_EPOCHS,
+    epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION,
+    model=TestConfig.MODEL_SIZE,
+):
     """Train a model using the federated approach with fixed epochs per iteration and federated state objects.
-    
+
     This function provides an 'all-encompassing' test of the complete federated learning workflow:
     - Uses fixed epochs per iteration
     - Explicitly tests federated state object passing between iterations
     - Simulates real-world federated learning where comprehensive state is passed between rounds
     - Provides a comprehensive integration test that validates the entire workflow
-    
+
     The function demonstrates the new federated state pattern where comprehensive state objects
     (containing model weights, optimiser state, LR scheduler state, and DP accountant state) are
     passed between training iterations instead of relying on workspace files.
@@ -160,11 +159,11 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
         # Train for exactly 'epochs_per_iteration' epochs each time
         # Pass the federated state from the previous iteration (if available)
         result = train(
-            workspace_dir=workspace_dir, # Continue to pass the workspace for data and associated metadata
+            workspace_dir=workspace_dir,  # Continue to pass the workspace for data and associated metadata
             federated_epochs=epochs_per_iteration,
             max_epochs=total_epochs,
             model=model,
-            federated_state=federated_state  # Pass previous federated state
+            federated_state=federated_state,  # Pass previous federated state
         )
 
         training_time = time.time() - start_time
@@ -178,7 +177,7 @@ def train_federated_model(workspace_dir, total_epochs=TestConfig.MAX_EPOCHS,
             try:
                 progress_df = pd.read_csv(progress_messages_path)
                 if not progress_df.empty:
-                    current_val_loss = progress_df.iloc[-1].get('val_loss')
+                    current_val_loss = progress_df.iloc[-1].get("val_loss")
             except Exception as e:
                 print(f"      Warning: Could not read progress messages: {e}")
 
@@ -236,7 +235,7 @@ def analyse_weights(weights, epoch, detailed=False):
     # Collect all weight values
     all_values = []
     for name, tensor in model_weights.items():
-        if hasattr(tensor, 'numpy'):  # PyTorch tensor
+        if hasattr(tensor, "numpy"):  # PyTorch tensor
             # Handle both CPU and CUDA tensors
             if tensor.is_cuda:
                 values = tensor.cpu().numpy().flatten()
@@ -261,12 +260,12 @@ def analyse_weights(weights, epoch, detailed=False):
     if detailed:
         layer_types = {}
         for name in model_weights.keys():
-            if 'weight' in name:
-                layer_types['weight'] = layer_types.get('weight', 0) + 1
-            elif 'bias' in name:
-                layer_types['bias'] = layer_types.get('bias', 0) + 1
-            elif 'embed' in name:
-                layer_types['embed'] = layer_types.get('embed', 0) + 1
+            if "weight" in name:
+                layer_types["weight"] = layer_types.get("weight", 0) + 1
+            elif "bias" in name:
+                layer_types["bias"] = layer_types.get("bias", 0) + 1
+            elif "embed" in name:
+                layer_types["embed"] = layer_types.get("embed", 0) + 1
 
         print(f"      Layer types: {layer_types}")
 
@@ -274,7 +273,7 @@ def analyse_weights(weights, epoch, detailed=False):
     if HAS_MATPLOTLIB and len(all_values) > 0:
         try:
             plt.figure(figsize=(10, 4))
-            plt.hist(all_values, bins=50, alpha=0.7, color='blue')
+            plt.hist(all_values, bins=50, alpha=0.7, color="blue")
             plt.title(f"Weight Distribution - Epoch {epoch}")
             plt.xlabel("Weight Value")
             plt.ylabel("Frequency")
@@ -286,21 +285,21 @@ def analyse_weights(weights, epoch, detailed=False):
             print(f"      Warning: Could not create plot: {e}")
 
 
-def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
-                         epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION):
+def train_epoch_by_epoch(
+    workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION
+):
     """Train one epoch at a time and analyse weights after each epoch.
-    
+
     This function focuses on detailed analysis and monitoring of the federated training process:
     - Tracks complete history of weights, losses, and training times for each iteration
     - Includes comprehensive weight analysis with statistics, percentiles, and visualisation
     - Provides progress monitoring and detailed logging for debugging and understanding
     - Tests the core federated training pattern with fixed epochs per iteration
-    
+
     While train_federated_model provides an all-encompassing integration test, this function
     offers straightforward epoch-by-epoch analysis and monitoring capabilities for understanding training dynamics.
     """
-    print(
-        f"\n--- Epoch-by-Epoch Training (total_epochs={max_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
+    print(f"\n--- Epoch-by-Epoch Training (total_epochs={max_epochs}, epochs_per_iteration={epochs_per_iteration}) ---")
 
     weights_history = []
     loss_history = []
@@ -318,7 +317,7 @@ def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
             federated_epochs=epochs_per_iteration,
             max_epochs=max_epochs,
             model=TestConfig.MODEL_SIZE,
-            federated_state=federated_state  # Pass previous federated state
+            federated_state=federated_state,  # Pass previous federated state
         )
 
         training_time = time.time() - start_time
@@ -331,7 +330,7 @@ def train_epoch_by_epoch(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS,
             try:
                 progress_df = pd.read_csv(progress_messages_path)
                 if not progress_df.empty:
-                    current_val_loss = progress_df.iloc[-1].get('val_loss')
+                    current_val_loss = progress_df.iloc[-1].get("val_loss")
             except Exception as e:
                 print(f"      Warning: Could not read progress messages: {e}")
 
@@ -381,7 +380,8 @@ def test_epoch_by_epoch_comparison():
 
             print(f"\nFederated epoch-by-epoch training:")
             federated_weights_history, federated_loss_history, federated_times = train_epoch_by_epoch(
-                federated_workspace)
+                federated_workspace
+            )
 
             # Normal training for final comparison
             normal_workspace = Path(tmpdir) / "normal-epoch-ws"
@@ -391,9 +391,7 @@ def test_epoch_by_epoch_comparison():
             setup_workspace(data, normal_workspace)
 
             print(f"\nNormal training for comparison:")
-            normal_result, normal_val_loss, normal_time = train_normal_model(
-                normal_workspace
-            )
+            normal_result, normal_val_loss, normal_time = train_normal_model(normal_workspace)
 
             # Analysis and comparison
             print("\n" + "=" * 80)
@@ -401,9 +399,9 @@ def test_epoch_by_epoch_comparison():
             print("=" * 80)
 
             print("Federated training progression:")
-            for epoch, (weights, loss, train_time) in enumerate(zip(
-                    federated_weights_history, federated_loss_history, federated_times
-            ), 1):
+            for epoch, (weights, loss, train_time) in enumerate(
+                zip(federated_weights_history, federated_loss_history, federated_times), 1
+            ):
                 print(f"  Epoch {epoch}:")
                 print(f"    Loss: {loss}")
                 print(f"    Training time: {train_time:.2f}s")
@@ -437,18 +435,19 @@ def test_epoch_by_epoch_comparison():
     except Exception as e:
         print(f"Error during epoch-by-epoch test: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
     """Test that federated weights can be properly loaded and training can continue.
-    
+
     This function provides focused unit-level testing of the weight loading mechanism:
     - Tests weight serialization and deserialization in isolation
     - Validates that weights obtained from federated training can be loaded for continuation
     - Demonstrates the new federated state pattern for training continuation
-    
+
     While train_federated_model tests weight loading as part of the complete workflow, this
     function provides isolated validation of the core weight loading mechanism using the
     new federated state pattern.
@@ -469,10 +468,7 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
             # Train with federated epochs to get weights
             print("Training with federated epochs to get weights...")
             federated_state = train(
-                workspace_dir=workspace_dir,
-                federated_epochs=epochs_per_iteration,
-                max_epochs=100,
-                model=model
+                workspace_dir=workspace_dir, federated_epochs=epochs_per_iteration, max_epochs=100, model=model
             )
 
             if federated_state is None:
@@ -489,7 +485,7 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
                 federated_epochs=epochs_per_iteration,
                 max_epochs=100,
                 model=model,
-                federated_state=federated_state
+                federated_state=federated_state,
             )
 
             if final_result is None:
@@ -512,6 +508,7 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
     except Exception as e:
         print(f"❌ FAILED: Error during weights loading test: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -584,6 +581,7 @@ def test_training_approach_comparison():
     except Exception as e:
         print(f"Error during comparison test: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -650,7 +648,7 @@ def main():
 
 def test_data_generation_quality():
     """Compare data generation quality between federated and normal training approaches.
-    
+
     This test generates synthetic data using both normal training and federated training,
     then compares the generated datasets directly to see if they are statistically similar.
     """
@@ -676,23 +674,16 @@ def test_data_generation_quality():
 
             # Train normally for specified epochs
             print("Training normal model...")
-            train(
-                workspace_dir=normal_workspace,
-                max_epochs=TestConfig.MAX_EPOCHS,
-                model=TestConfig.MODEL_SIZE
-            )
+            train(workspace_dir=normal_workspace, max_epochs=TestConfig.MAX_EPOCHS, model=TestConfig.MODEL_SIZE)
 
             # Generate synthetic data from the normal model
             print("Generating data from normal model...")
-            generate(
-                workspace_dir=normal_workspace,
-                sample_size=TestConfig.TEST_SAMPLES
-            )
+            generate(workspace_dir=normal_workspace, sample_size=TestConfig.TEST_SAMPLES)
             # Read the generated data
             normal_workspace_obj = Workspace(normal_workspace)
-            normal_synthetic = pd.concat([
-                pd.read_parquet(file) for file in normal_workspace_obj.generated_data.fetch_all()
-            ], ignore_index=True)
+            normal_synthetic = pd.concat(
+                [pd.read_parquet(file) for file in normal_workspace_obj.generated_data.fetch_all()], ignore_index=True
+            )
 
             # Set up the workspace for federated training
             federated_workspace = Path(tmpdir) / "federated-gen-ws"
@@ -708,7 +699,7 @@ def test_data_generation_quality():
                     workspace_dir=federated_workspace,
                     federated_epochs=1,
                     max_epochs=TestConfig.MAX_EPOCHS,
-                    model=TestConfig.MODEL_SIZE
+                    model=TestConfig.MODEL_SIZE,
                 )
                 print(f"  Completed iteration {iteration}/{TestConfig.MAX_EPOCHS}")
 
@@ -716,13 +707,14 @@ def test_data_generation_quality():
             print("Generating data from federated model...")
             generate(
                 workspace_dir=federated_workspace,  # TODO in federated context this would of course not work
-                sample_size=TestConfig.TEST_SAMPLES
+                sample_size=TestConfig.TEST_SAMPLES,
             )
             # Read the generated data
             federated_workspace_obj = Workspace(federated_workspace)
-            federated_synthetic = pd.concat([
-                pd.read_parquet(file) for file in federated_workspace_obj.generated_data.fetch_all()
-            ], ignore_index=True)
+            federated_synthetic = pd.concat(
+                [pd.read_parquet(file) for file in federated_workspace_obj.generated_data.fetch_all()],
+                ignore_index=True,
+            )
 
             # Direct comparison between the two synthetic datasets
             print("\n" + "=" * 80)
@@ -754,7 +746,7 @@ def test_data_generation_quality():
             print(f"\nStatistical comparison:")
             all_similar = True
 
-            for col in ['age', 'fare']:
+            for col in ["age", "fare"]:
                 if col in normal_synthetic.columns:
                     try:
                         # Calculate statistics for both synthetic datasets
@@ -792,7 +784,7 @@ def test_data_generation_quality():
 
             # Categorical column comparison
             print(f"\nCategorical comparison:")
-            for col in ['survived', 'pclass', 'sex', 'sibsp', 'parch', 'embarked']:
+            for col in ["survived", "pclass", "sex", "sibsp", "parch", "embarked"]:
                 if col in normal_synthetic.columns:
                     try:
                         # Get value distributions
@@ -830,7 +822,7 @@ def test_data_generation_quality():
                             syn_tgt_data=federated_synthetic,
                             trn_tgt_data=normal_synthetic,
                             report_path=report_path,
-                            report_title="Synthetic (federated) vs Synthetic (central) Comparison"
+                            report_title="Synthetic (federated) vs Synthetic (central) Comparison",
                         )
 
                         print(f"  Report saved to: {report_path}")
@@ -848,23 +840,25 @@ def test_data_generation_quality():
 
                                 # Focus on the most relevant metrics for comparing two synthetic datasets
                                 # 1. Overall accuracy (if available)
-                                overall_accuracy = metrics_dict.get('accuracy', {}).get('overall')
+                                overall_accuracy = metrics_dict.get("accuracy", {}).get("overall")
                                 if overall_accuracy is not None:
                                     print(f"    Overall accuracy: {overall_accuracy:.3f}")
                                     accuracy_similar = overall_accuracy > 0.6  # Reasonable threshold
                                     print(f"    Accuracy acceptable: {'✓ YES' if accuracy_similar else '❌ NO'}")
 
                                 # 2. Cosine similarity between training and synthetic data
-                                cosine_sim = metrics_dict.get('similarity', {}).get(
-                                    'cosine_similarity_training_synthetic')
+                                cosine_sim = metrics_dict.get("similarity", {}).get(
+                                    "cosine_similarity_training_synthetic"
+                                )
                                 if cosine_sim is not None:
                                     print(f"    Cosine similarity (training vs synthetic): {cosine_sim:.3f}")
                                     cosine_similar = cosine_sim > 0.7  # Good similarity threshold
                                     print(f"    Cosine similarity good: {'✓ YES' if cosine_similar else '❌ NO'}")
 
                                 # 3. Discriminator AUC (how well a classifier can distinguish real vs synthetic)
-                                discriminator_auc = metrics_dict.get('similarity', {}).get(
-                                    'discriminator_auc_training_synthetic')
+                                discriminator_auc = metrics_dict.get("similarity", {}).get(
+                                    "discriminator_auc_training_synthetic"
+                                )
                                 if discriminator_auc is not None:
                                     print(f"    Discriminator AUC: {discriminator_auc:.3f}")
                                     # For similarity, we want AUC close to 0.5 (can't distinguish well)
@@ -872,14 +866,14 @@ def test_data_generation_quality():
                                     print(f"    AUC indicates similarity: {'✓ YES' if auc_similar else '❌ NO'}")
 
                                 # 4. Univariate accuracy (individual column statistics)
-                                univariate_acc = metrics_dict.get('accuracy', {}).get('univariate')
+                                univariate_acc = metrics_dict.get("accuracy", {}).get("univariate")
                                 if univariate_acc is not None:
                                     print(f"    Univariate accuracy: {univariate_acc:.3f}")
                                     univariate_good = univariate_acc > 0.8  # High threshold for individual columns
                                     print(f"    Univariate accuracy good: {'✓ YES' if univariate_good else '❌ NO'}")
 
                                 # 5. NNDR distance (nearest neighbor distance ratio)
-                                nndr = metrics_dict.get('distances', {}).get('nndr_training')
+                                nndr = metrics_dict.get("distances", {}).get("nndr_training")
                                 if nndr is not None:
                                     print(f"    NNDR distance: {nndr:.3f}")
                                     nndr_good = nndr < 0.8  # Lower is better for similarity
@@ -903,7 +897,8 @@ def test_data_generation_quality():
                                     similar_count = sum(available_metrics)
                                     overall_similar = similar_count >= 3
                                     print(
-                                        f"  Overall similarity assessment: {similar_count}/{len(available_metrics)} metrics good")
+                                        f"  Overall similarity assessment: {similar_count}/{len(available_metrics)} metrics good"
+                                    )
                                     print(f"  Synthetic datasets similar: {'✓ YES' if overall_similar else '❌ NO'}")
                                     return all_similar and overall_similar
                                 else:
@@ -918,7 +913,9 @@ def test_data_generation_quality():
 
                 except Exception as e:
                     print(f"  Warning: Could not run advanced quality assessment: {e}")
-                    print(f"  Note: The synthetic data is non-deterministic — the mostlyai-qa library may hit edge cases")
+                    print(
+                        f"  Note: The synthetic data is non-deterministic — the mostlyai-qa library may hit edge cases"
+                    )
                     print(f"  (e.g. duplicate labels after category trimming) depending on the generated data.")
                     print(f"  Re-running the test with a different random seed may resolve it.")
                     return all_similar
@@ -931,13 +928,14 @@ def test_data_generation_quality():
     except Exception as e:
         print(f"Error during data generation quality test: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
 
 def test_enhanced_federated_state_pattern():
     """Test the enhanced federated state pattern with all robustness improvements.
-    
+
     This test specifically validates the new federated state implementation:
     - Tests comprehensive federated state objects (model weights, optimiser state, LR scheduler state, DP accountant state)
     - Validates None guards for missing or None state components
@@ -968,7 +966,7 @@ def test_enhanced_federated_state_pattern():
                 federated_epochs=1,
                 max_epochs=100,
                 model=TestConfig.MODEL_SIZE,
-                federated_state=federated_state
+                federated_state=federated_state,
             )
 
             if result1 is None:
@@ -986,7 +984,7 @@ def test_enhanced_federated_state_pattern():
                 federated_epochs=1,
                 max_epochs=100,
                 model=TestConfig.MODEL_SIZE,
-                federated_state=result1  # Pass complete state
+                federated_state=result1,  # Pass complete state
             )
 
             if result2 is None:
@@ -1001,7 +999,7 @@ def test_enhanced_federated_state_pattern():
             # Create a partial federated state (missing optimiser and LR scheduler state)
             partial_federated_state = {
                 "model_weights": result2["model_weights"],
-                "training_metrics": result2["training_metrics"]
+                "training_metrics": result2["training_metrics"],
             }
 
             result3 = train(
@@ -1009,7 +1007,7 @@ def test_enhanced_federated_state_pattern():
                 federated_epochs=1,
                 max_epochs=100,
                 model=TestConfig.MODEL_SIZE,
-                federated_state=partial_federated_state  # Pass partial state
+                federated_state=partial_federated_state,  # Pass partial state
             )
 
             if result3 is None:
@@ -1023,7 +1021,7 @@ def test_enhanced_federated_state_pattern():
 
             minimal_federated_state = {
                 "model_weights": result3["model_weights"],
-                "training_metrics": result3["training_metrics"]
+                "training_metrics": result3["training_metrics"],
             }
 
             result4 = train(
@@ -1031,7 +1029,7 @@ def test_enhanced_federated_state_pattern():
                 federated_epochs=1,
                 max_epochs=100,
                 model=TestConfig.MODEL_SIZE,
-                federated_state=minimal_federated_state  # Pass minimal state
+                federated_state=minimal_federated_state,  # Pass minimal state
             )
 
             if result4 is None:
@@ -1098,16 +1096,16 @@ def test_enhanced_federated_state_pattern():
                 w_next = next_weights[sample_key]
 
                 # Convert to numpy if needed (handle both CPU and GPU tensors)
-                if hasattr(w_current, 'cpu'):
+                if hasattr(w_current, "cpu"):
                     w_current = w_current.cpu().numpy()
-                elif hasattr(w_current, 'numpy'):
+                elif hasattr(w_current, "numpy"):
                     w_current = w_current.numpy()
                 else:
                     w_current = np.array(w_current)
 
-                if hasattr(w_next, 'cpu'):
+                if hasattr(w_next, "cpu"):
                     w_next = w_next.cpu().numpy()
-                elif hasattr(w_next, 'numpy'):
+                elif hasattr(w_next, "numpy"):
                     w_next = w_next.numpy()
                 else:
                     w_next = np.array(w_next)
@@ -1115,7 +1113,7 @@ def test_enhanced_federated_state_pattern():
                 # Check if weights changed (training continued)
                 if not np.array_equal(w_current, w_next):
                     weights_changed = True
-                    print(f"✓ Weights changed between iteration {i+1} and {i+2} (training continued)")
+                    print(f"✓ Weights changed between iteration {i + 1} and {i + 2} (training continued)")
                     break
 
             if not weights_changed:
@@ -1140,6 +1138,7 @@ def test_enhanced_federated_state_pattern():
     except Exception as e:
         print(f"❌ FAILED: Error during enhanced federated state test: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
