@@ -21,13 +21,14 @@ from mostlyai.engine.generation import generate
 from mostlyai.engine.logging import init_logging
 from mostlyai.engine.random_state import set_random_state
 from mostlyai.engine.splitting import split
-from mostlyai.engine.training import train
+from mostlyai.engine.training import train, validate
 
 __all__ = [
     "split",
     "analyze",
     "encode",
     "train",
+    "validate",
     "generate",
     "init_logging",
     "set_random_state",
