@@ -75,7 +75,9 @@ except ImportError:
 def create_test_data():
     """Fetch sample tabular data for testing."""
 
-    data = pd.read_csv("https://github.com/mostly-ai/public-demo-data/raw/dev/titanic/titanic.csv")
+    data = pd.read_csv("https://zenodo.org/records/20411920/files/Intensivregister_Deutschland_Versorgungsstufen.csv")
+    # Very large dataset
+    # data = pd.read_csv("https://zenodo.org/records/20411920/files/Intensivregister_Landkreise_Kapazitaeten.csv")
 
     return data
 
@@ -85,14 +87,14 @@ def setup_workspace(data, workspace_dir):
     split(
         tgt_data=data,
         tgt_encoding_types={
-            "survived": ModelEncodingType.tabular_categorical,
-            "pclass": ModelEncodingType.tabular_categorical,
-            "sex": ModelEncodingType.tabular_categorical,
-            "age": ModelEncodingType.tabular_numeric_auto,
-            "sibsp": ModelEncodingType.tabular_categorical,
-            "parch": ModelEncodingType.tabular_categorical,
-            "fare": ModelEncodingType.tabular_numeric_auto,
-            "embarked": ModelEncodingType.tabular_categorical,
+            "datum": ModelEncodingType.tabular_numeric_auto,
+            "bundesland_id": ModelEncodingType.tabular_numeric_auto,
+            "bundesland_name": ModelEncodingType.tabular_categorical,
+            "versorgungsstufe": ModelEncodingType.tabular_categorical,
+            "anzahl_meldebereiche": ModelEncodingType.tabular_numeric_auto,
+            "faelle_covid_aktuell": ModelEncodingType.tabular_numeric_auto,
+            "intensivbetten_belegt": ModelEncodingType.tabular_numeric_auto,
+            "intensivbetten_frei": ModelEncodingType.tabular_numeric_auto,
         },
         workspace_dir=workspace_dir,
     )
