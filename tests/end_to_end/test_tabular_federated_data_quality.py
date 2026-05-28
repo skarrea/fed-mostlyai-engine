@@ -67,8 +67,8 @@ class TestConfig:
 
     # Training parameters
     EPOCHS_PER_ITERATION = 1  # Numbers of epochs per federated iteration
-    MAX_EPOCHS = 20  # Maximum number of epochs for training
-    MODEL_SIZE = "MOSTLY_AI/Small"  # Model size to use
+    MAX_EPOCHS = 100  # Maximum number of epochs for training
+    MODEL_SIZE = "MOSTLY_AI/Medium"  # Model size to use
 
     # Data generation parameters
     TOTAL_SAMPLES = 3000  # Total samples to create
