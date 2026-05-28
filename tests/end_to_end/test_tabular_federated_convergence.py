@@ -73,10 +73,6 @@ class TestConfig:
     TOTAL_SAMPLES = 3000  # Total samples to create
     TEST_SAMPLES = 1000  # Samples used for quality testing
 
-    # Quality assessment
-    GENERATE_HTML_REPORTS = True  # Set to True to generate HTML reports (slower)
-    QUALITY_TOLERANCE = 0.10  # 10% tolerance for quality score comparison
-
     # Output directory for plots and summary artifacts
     OUTPUT_DIR = Path("test-output/convergence")
 

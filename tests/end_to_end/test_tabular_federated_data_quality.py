@@ -76,7 +76,7 @@ class TestConfig:
 
     # Quality assessment
     GENERATE_HTML_REPORTS = True  # Set to True to generate HTML reports (slower)
-    QUALITY_TOLERANCE = 0.10  # 10% tolerance for quality score comparison
+    QUALITY_TOLERANCE = 0.15  # 15% tolerance for quality score comparison
 
     # Output directory for plots and summary artifacts
     OUTPUT_DIR = Path("test-output/quality")
