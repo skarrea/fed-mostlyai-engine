@@ -102,10 +102,38 @@ def epoch_loss_table_rows(curves: dict) -> list:
         return []
 
     merged = pd.concat(series.values(), axis=1, keys=series.keys())
+    merged = merged.fillna("—")  # replace NaN from misaligned epoch counts with em-dash
     merged.index.name = "Epoch"
     merged = merged.reset_index()
     merged["Epoch"] = merged["Epoch"].astype(int)
     return merged.to_dict(orient="records")
+
+
+def write_summary_header(title: str, output_dir=None) -> None:
+    """Write a top-level H1 heading to $GITHUB_STEP_SUMMARY and/or a local file.
+
+    Intended to be called once at the start of a test run to provide context for all
+    subsequent tables appended to the same summary page.
+
+    Args:
+        title:      Heading text rendered as a ``#`` (H1) heading.
+        output_dir: Optional directory.  When given, appends to ``{output_dir}/summary.md``.
+    """
+    import datetime
+
+    timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    markdown = f"# {title}\n\n_Generated: {timestamp}_\n\n"
+
+    step_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary_path:
+        with open(step_summary_path, "a", encoding="utf-8") as fh:
+            fh.write(markdown)
+
+    if output_dir:
+        summary_file = Path(output_dir) / "summary.md"
+        summary_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(summary_file, "a", encoding="utf-8") as fh:
+            fh.write(markdown)
 
 
 def write_github_step_summary(title: str, rows: list, output_dir=None) -> None:
@@ -125,14 +153,20 @@ def write_github_step_summary(title: str, rows: list, output_dir=None) -> None:
         return
 
     headers = list(rows[0].keys())
+    # Left-align first column (labels), right-align the rest (numbers)
+    sep_parts = [":---" if i == 0 else "---:" for i in range(len(headers))]
     lines = [
         f"## {title}",
         "",
         "| " + " | ".join(headers) + " |",
-        "| " + " | ".join(["---"] * len(headers)) + " |",
+        "| " + " | ".join(sep_parts) + " |",
     ]
     for row in rows:
-        lines.append("| " + " | ".join(str(row.get(h, "—")) for h in headers) + " |")
+        cells = []
+        for h in headers:
+            v = row.get(h, "—")
+            cells.append("—" if pd.isna(v) else str(v))
+        lines.append("| " + " | ".join(cells) + " |")
     lines.append("")
 
     markdown = "\n".join(lines) + "\n"

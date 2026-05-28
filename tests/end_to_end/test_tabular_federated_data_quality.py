@@ -233,6 +233,18 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
 
                 if not col_similar:
                     all_similar = False
+                summary_rows.append({
+                    "Metric": f"{col} (mean diff)",
+                    "Value": f"{mean_rel_diff:.1%}",
+                    "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
+                    "Pass": "✓" if mean_ok else "❌",
+                })
+                summary_rows.append({
+                    "Metric": f"{col} (std diff)",
+                    "Value": f"{std_rel_diff:.1%}",
+                    "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
+                    "Pass": "✓" if std_ok else "❌",
+                })
             except Exception as e:
                 print(f"    Could not compare {col}: {e}")
                 all_similar = False
@@ -244,12 +256,18 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
             try:
                 dist_a = syn_a[col].value_counts(normalize=True)
                 dist_b = syn_b[col].value_counts(normalize=True)
-                common_values = set(dist_a.index) & set(dist_b.index)
-                tv_distance = 0.5 * sum(abs(dist_a.get(v, 0) - dist_b.get(v, 0)) for v in common_values)
+                all_values = set(dist_a.index) | set(dist_b.index)  # union: don't miss exclusive categories
+                tv_distance = 0.5 * sum(abs(dist_a.get(v, 0) - dist_b.get(v, 0)) for v in all_values)
                 similar = tv_distance < TestConfig.QUALITY_TOLERANCE
                 print(f"  {col}: TV distance={tv_distance:.3f} - {'✓' if similar else '❌'}")
                 if not similar:
                     all_similar = False
+                summary_rows.append({
+                    "Metric": f"{col} (TV distance)",
+                    "Value": f"{tv_distance:.3f}",
+                    "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
+                    "Pass": "✓" if similar else "❌",
+                })
             except Exception as e:
                 print(f"    Could not compare {col}: {e}")
                 all_similar = False
