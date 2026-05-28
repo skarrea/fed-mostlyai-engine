@@ -51,6 +51,12 @@ from mostlyai.engine import split, analyze, encode, train, generate
 from mostlyai.engine.domain import ModelEncodingType
 from mostlyai.engine._workspace import Workspace
 
+# Shared reporting utilities (plots + GitHub step summary)
+_test_dir = Path(__file__).parent
+if str(_test_dir) not in sys.path:
+    sys.path.insert(0, str(_test_dir))
+import reporting
+
 
 # ============================================
 # TEST CONFIGURATION - Adjust these parameters
@@ -70,6 +76,9 @@ class TestConfig:
     # Quality assessment
     GENERATE_HTML_REPORTS = True  # Set to True to generate HTML reports (slower)
     QUALITY_TOLERANCE = 0.10  # 10% tolerance for quality score comparison
+
+    # Output directory for plots and summary artifacts
+    OUTPUT_DIR = Path("test-output/quality")
 
 
 # ============================================
@@ -203,8 +212,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
         return False
 
     all_similar = True
-
-    # Numeric columns
+    summary_rows = []  # Collected for GitHub step summary
     print(f"\nStatistical comparison (numeric):")
     for col in ["bundesland_id", "anzahl_meldebereiche", "faelle_covid_aktuell", "intensivbetten_belegt",
                 "intensivbetten_frei"]:
@@ -276,12 +284,14 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
                             acc_ok = overall_accuracy > 0.6
                             print(f"    Overall accuracy: {overall_accuracy:.3f} - {'✓' if acc_ok else '❌'}")
                             available_metrics.append(acc_ok)
+                            summary_rows.append({"Metric": "Overall Accuracy", "Value": f"{overall_accuracy:.3f}", "Threshold": ">0.6", "Pass": "✓" if acc_ok else "❌"})
 
                         cosine_sim = metrics_dict.get("similarity", {}).get("cosine_similarity_training_synthetic")
                         if cosine_sim is not None:
                             cos_ok = cosine_sim > 0.7
                             print(f"    Cosine similarity: {cosine_sim:.3f} - {'✓' if cos_ok else '❌'}")
                             available_metrics.append(cos_ok)
+                            summary_rows.append({"Metric": "Cosine Similarity", "Value": f"{cosine_sim:.3f}", "Threshold": ">0.7", "Pass": "✓" if cos_ok else "❌"})
 
                         discriminator_auc = metrics_dict.get("similarity", {}).get(
                             "discriminator_auc_training_synthetic"
@@ -290,18 +300,21 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
                             auc_ok = abs(discriminator_auc - 0.5) < 0.2
                             print(f"    Discriminator AUC: {discriminator_auc:.3f} - {'✓' if auc_ok else '❌'}")
                             available_metrics.append(auc_ok)
+                            summary_rows.append({"Metric": "Discriminator AUC", "Value": f"{discriminator_auc:.3f}", "Threshold": "|AUC-0.5|<0.2", "Pass": "✓" if auc_ok else "❌"})
 
                         univariate_acc = metrics_dict.get("accuracy", {}).get("univariate")
                         if univariate_acc is not None:
                             uni_ok = univariate_acc > 0.8
                             print(f"    Univariate accuracy: {univariate_acc:.3f} - {'✓' if uni_ok else '❌'}")
                             available_metrics.append(uni_ok)
+                            summary_rows.append({"Metric": "Univariate Accuracy", "Value": f"{univariate_acc:.3f}", "Threshold": ">0.8", "Pass": "✓" if uni_ok else "❌"})
 
                         nndr = metrics_dict.get("distances", {}).get("nndr_training")
                         if nndr is not None:
                             nndr_ok = nndr < 0.8
                             print(f"    NNDR distance: {nndr:.3f} - {'✓' if nndr_ok else '❌'}")
                             available_metrics.append(nndr_ok)
+                            summary_rows.append({"Metric": "NNDR Distance", "Value": f"{nndr:.3f}", "Threshold": "<0.8", "Pass": "✓" if nndr_ok else "❌"})
 
                         if available_metrics:
                             similar_count = sum(available_metrics)
@@ -311,9 +324,19 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
                                 f"  Overall QA assessment: {similar_count}/{len(available_metrics)} metrics acceptable"
                             )
                             print(f"  Datasets similar: {'✓ YES' if overall_similar else '❌ NO'}")
+                            reporting.write_github_step_summary(
+                                f"Data Quality: Local Central vs {other_label}",
+                                summary_rows,
+                                output_dir=TestConfig.OUTPUT_DIR,
+                            )
                             return all_similar and overall_similar
                         else:
                             print(f"  No QA metrics found, falling back to basic assessment.")
+                            reporting.write_github_step_summary(
+                                f"Data Quality: Local Central vs {other_label}",
+                                summary_rows,
+                                output_dir=TestConfig.OUTPUT_DIR,
+                            )
                             return all_similar
                     except Exception as e:
                         print(f"  Could not extract QA metrics: {e}")
@@ -326,6 +349,11 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
         print(f"  Overall similarity: {'✓ YES' if all_similar else '❌ NO'}")
         print(f"  Note: Install mostlyai-qa for comprehensive quality assessment")
 
+    reporting.write_github_step_summary(
+        f"Data Quality: Local Central vs {other_label}",
+        summary_rows,
+        output_dir=TestConfig.OUTPUT_DIR,
+    )
     return all_similar
 
 

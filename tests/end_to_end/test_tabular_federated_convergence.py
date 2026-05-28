@@ -19,11 +19,42 @@ import torch
 
 # Project root for the local (development) version
 project_root = Path(__file__).parent.parent.parent
+
+# Import PyPI version first (before adding local path to sys.path)
+try:
+    import mostlyai.engine as _mostlyai_engine_pypi
+    from mostlyai.engine import split as split_pypi
+    from mostlyai.engine import analyze as analyze_pypi
+    from mostlyai.engine import encode as encode_pypi
+    from mostlyai.engine import train as train_pypi
+    from mostlyai.engine._workspace import Workspace as Workspace_pypi
+    from mostlyai.engine.domain import ModelEncodingType as ModelEncodingType_pypi
+
+    HAS_PYPI_ENGINE = True
+    print(f"PyPI mostlyai.engine imported: {getattr(_mostlyai_engine_pypi, '__version__', 'unknown version')}")
+except ImportError:
+    split_pypi = analyze_pypi = encode_pypi = train_pypi = None
+    Workspace_pypi = None
+    ModelEncodingType_pypi = None
+    HAS_PYPI_ENGINE = False
+    print("Note: PyPI mostlyai.engine not available — PyPI baseline run will be skipped")
+
+# Clear cached mostlyai modules so the local development version loads fresh
+for _key in list(sys.modules.keys()):
+    if _key.startswith("mostlyai"):
+        del sys.modules[_key]
+
 sys.path.insert(0, str(project_root))
 
 from mostlyai.engine import split, analyze, encode, train
 from mostlyai.engine.domain import ModelEncodingType
 from mostlyai.engine._workspace import Workspace
+
+# Shared reporting utilities (plots + GitHub step summary)
+_test_dir = Path(__file__).parent
+if str(_test_dir) not in sys.path:
+    sys.path.insert(0, str(_test_dir))
+import reporting
 
 
 # ============================================
@@ -45,17 +76,11 @@ class TestConfig:
     GENERATE_HTML_REPORTS = True  # Set to True to generate HTML reports (slower)
     QUALITY_TOLERANCE = 0.10  # 10% tolerance for quality score comparison
 
+    # Output directory for plots and summary artifacts
+    OUTPUT_DIR = Path("test-output/convergence")
+
 
 # ============================================
-
-# Optional imports for visualisation (uncomment if you want plots)
-try:
-    import matplotlib.pyplot as plt
-
-    HAS_MATPLOTLIB = True
-except ImportError:
-    HAS_MATPLOTLIB = False
-    print("Note: matplotlib not available - visualisation features disabled")
 
 # Optional import for quality assessment
 try:
@@ -102,6 +127,26 @@ def setup_workspace(data, workspace_dir):
     encode(workspace_dir=workspace_dir)
 
 
+def setup_workspace_pypi(data, workspace_dir):
+    """Set up a workspace using the PyPI (released) engine."""
+    split_pypi(
+        tgt_data=data,
+        tgt_encoding_types={
+            "datum": ModelEncodingType_pypi.tabular_numeric_auto,
+            "bundesland_id": ModelEncodingType_pypi.tabular_numeric_auto,
+            "bundesland_name": ModelEncodingType_pypi.tabular_categorical,
+            "versorgungsstufe": ModelEncodingType_pypi.tabular_categorical,
+            "anzahl_meldebereiche": ModelEncodingType_pypi.tabular_numeric_auto,
+            "faelle_covid_aktuell": ModelEncodingType_pypi.tabular_numeric_auto,
+            "intensivbetten_belegt": ModelEncodingType_pypi.tabular_numeric_auto,
+            "intensivbetten_frei": ModelEncodingType_pypi.tabular_numeric_auto,
+        },
+        workspace_dir=workspace_dir,
+    )
+    analyze_pypi(workspace_dir=workspace_dir)
+    encode_pypi(workspace_dir=workspace_dir)
+
+
 def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=TestConfig.MODEL_SIZE):
     """Train a model using the normal training approach."""
     print(f"\n--- Normal Training (max_epochs={max_epochs}) ---")
@@ -116,16 +161,52 @@ def train_normal_model(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=Te
     # Get final validation loss from progress messages CSV
     workspace = Workspace(workspace_dir)
     progress_messages_path = workspace.model_progress_messages_path
+    curve_df = None
     final_val_loss = None
     if progress_messages_path.exists():
         try:
-            progress_df = pd.read_csv(progress_messages_path)
-            if not progress_df.empty:
-                final_val_loss = progress_df.iloc[-1].get("val_loss")
+            curve_df = pd.read_csv(progress_messages_path)
+            if not curve_df.empty:
+                final_val_loss = curve_df.iloc[-1].get("val_loss")
+                curve_df = curve_df.reset_index(drop=True)
+                curve_df["epoch"] = range(1, len(curve_df) + 1)
+            else:
+                curve_df = None
         except Exception as e:
             print(f"Warning: Could not read progress messages: {e}")
+            curve_df = None
 
-    return result, final_val_loss, training_time
+    return result, final_val_loss, training_time, curve_df
+
+
+def train_normal_model_pypi(workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=TestConfig.MODEL_SIZE):
+    """Train a model using the PyPI (released) engine — normal training approach."""
+    print(f"\n--- Normal Training / PyPI baseline (max_epochs={max_epochs}) ---")
+    start_time = time.time()
+
+    result = train_pypi(workspace_dir=workspace_dir, max_epochs=max_epochs, model=model)
+
+    training_time = time.time() - start_time
+    print(f"PyPI normal training completed in {training_time:.2f} seconds")
+
+    workspace = Workspace_pypi(workspace_dir)
+    progress_messages_path = workspace.model_progress_messages_path
+    curve_df = None
+    final_val_loss = None
+    if progress_messages_path.exists():
+        try:
+            curve_df = pd.read_csv(progress_messages_path)
+            if not curve_df.empty:
+                final_val_loss = curve_df.iloc[-1].get("val_loss")
+                curve_df = curve_df.reset_index(drop=True)
+                curve_df["epoch"] = range(1, len(curve_df) + 1)
+            else:
+                curve_df = None
+        except Exception as e:
+            print(f"Warning: Could not read PyPI progress messages: {e}")
+            curve_df = None
+
+    return result, final_val_loss, training_time, curve_df
 
 
 def train_federated_model(
@@ -153,6 +234,7 @@ def train_federated_model(
     training_times = []
     total_training_time = 0
     federated_state = None  # Start with no federated state
+    curve_rows = []  # Accumulated per-iteration training curve
 
     for iteration in range(1, total_epochs + 1):
         print(f"\n  Federated Iteration {iteration}/{total_epochs}")
@@ -175,11 +257,14 @@ def train_federated_model(
         workspace = Workspace(workspace_dir)
         progress_messages_path = workspace.model_progress_messages_path
         current_val_loss = None
+        current_trn_loss = None
         if progress_messages_path.exists():
             try:
                 progress_df = pd.read_csv(progress_messages_path)
                 if not progress_df.empty:
-                    current_val_loss = progress_df.iloc[-1].get("val_loss")
+                    last_row = progress_df.iloc[-1]
+                    current_val_loss = last_row.get("val_loss")
+                    current_trn_loss = last_row.get("trn_loss")
             except Exception as e:
                 print(f"      Warning: Could not read progress messages: {e}")
 
@@ -187,6 +272,7 @@ def train_federated_model(
         weights_history.append(result)
         loss_history.append(current_val_loss)
         training_times.append(training_time)
+        curve_rows.append({"epoch": iteration, "val_loss": current_val_loss, "trn_loss": current_trn_loss})
 
         # Print analysis
         print(f"    Training time: {training_time:.2f}s")
@@ -216,8 +302,9 @@ def train_federated_model(
     final_weights = weights_history[-1] if weights_history else None
     intermediate_loss = loss_history[0] if len(loss_history) > 1 else None
     final_loss = loss_history[-1] if loss_history else None
+    curve_df = pd.DataFrame(curve_rows) if curve_rows else None
 
-    return final_weights, intermediate_loss, final_loss, total_training_time
+    return final_weights, intermediate_loss, final_loss, total_training_time, curve_df
 
 
 def analyse_weights(weights, epoch, detailed=False):
@@ -271,20 +358,7 @@ def analyse_weights(weights, epoch, detailed=False):
 
         print(f"      Layer types: {layer_types}")
 
-    # Visualisation
-    if HAS_MATPLOTLIB and len(all_values) > 0:
-        try:
-            plt.figure(figsize=(10, 4))
-            plt.hist(all_values, bins=50, alpha=0.7, color="blue")
-            plt.title(f"Weight Distribution - Epoch {epoch}")
-            plt.xlabel("Weight Value")
-            plt.ylabel("Frequency")
-            plt.tight_layout()
-            plt.savefig(f"weight_distribution_epoch_{epoch}.png")
-            plt.close()
-            print(f"      Saved weight distribution plot")
-        except Exception as e:
-            print(f"      Warning: Could not create plot: {e}")
+    # Visualisation removed — weight matrix images are no longer generated.
 
 
 def train_epoch_by_epoch(
@@ -307,6 +381,7 @@ def train_epoch_by_epoch(
     loss_history = []
     training_times = []
     federated_state = None  # Start with no federated state
+    curve_rows = []  # Accumulated per-iteration training curve
 
     for iteration in range(1, max_epochs + 1):
         print(f"\n  Iteration {iteration}/{max_epochs}")
@@ -328,11 +403,14 @@ def train_epoch_by_epoch(
         workspace = Workspace(workspace_dir)
         progress_messages_path = workspace.model_progress_messages_path
         current_val_loss = None
+        current_trn_loss = None
         if progress_messages_path.exists():
             try:
                 progress_df = pd.read_csv(progress_messages_path)
                 if not progress_df.empty:
-                    current_val_loss = progress_df.iloc[-1].get("val_loss")
+                    last_row = progress_df.iloc[-1]
+                    current_val_loss = last_row.get("val_loss")
+                    current_trn_loss = last_row.get("trn_loss")
             except Exception as e:
                 print(f"      Warning: Could not read progress messages: {e}")
 
@@ -340,6 +418,7 @@ def train_epoch_by_epoch(
         weights_history.append(result)
         loss_history.append(current_val_loss)
         training_times.append(training_time)
+        curve_rows.append({"epoch": iteration, "val_loss": current_val_loss, "trn_loss": current_trn_loss})
 
         # Print analysis
         print(f"    Training time: {training_time:.2f}s")
@@ -356,10 +435,8 @@ def train_epoch_by_epoch(
             federated_state = result
             print(f"    Preparing federated state for next iteration...")
 
-        if result:
-            analyse_weights(result, iteration)
-
-    return weights_history, loss_history, training_times
+    curve_df = pd.DataFrame(curve_rows) if curve_rows else None
+    return weights_history, loss_history, training_times, curve_df
 
 
 def test_epoch_by_epoch_comparison():
@@ -381,7 +458,7 @@ def test_epoch_by_epoch_comparison():
             setup_workspace(data, federated_workspace)
 
             print(f"\nFederated epoch-by-epoch training:")
-            federated_weights_history, federated_loss_history, federated_times = train_epoch_by_epoch(
+            federated_weights_history, federated_loss_history, federated_times, fed_curve_df = train_epoch_by_epoch(
                 federated_workspace
             )
 
@@ -393,7 +470,7 @@ def test_epoch_by_epoch_comparison():
             setup_workspace(data, normal_workspace)
 
             print(f"\nNormal training for comparison:")
-            normal_result, normal_val_loss, normal_time = train_normal_model(normal_workspace)
+            normal_result, normal_val_loss, normal_time, normal_curve_df = train_normal_model(normal_workspace)
 
             # Analysis and comparison
             print("\n" + "=" * 80)
@@ -428,6 +505,40 @@ def test_epoch_by_epoch_comparison():
                 # Consider them similar if the relative difference is < 15% (slightly more tolerant for epoch analysis)
                 similar_results = loss_ratio < 0.15
                 print(f"  Similar results: {'YES' if similar_results else 'NO'}")
+
+                # Plot training curves and write GitHub step summary
+                curves = {}
+                if normal_curve_df is not None:
+                    curves["Normal"] = normal_curve_df
+                if fed_curve_df is not None:
+                    curves["Federated (epoch-by-epoch)"] = fed_curve_df
+                if curves:
+                    TestConfig.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                    reporting.plot_training_curves(
+                        curves, TestConfig.OUTPUT_DIR / "epoch_by_epoch_training_curves.png"
+                    )
+                summary_rows = [
+                    {
+                        "Approach": "Normal",
+                        "Final Val Loss": f"{normal_val_loss:.6f}" if normal_val_loss is not None else "N/A",
+                        "Training Time (s)": f"{normal_time:.1f}",
+                    },
+                    {
+                        "Approach": "Federated (epoch-by-epoch)",
+                        "Final Val Loss": f"{final_federated_loss:.6f}" if final_federated_loss is not None else "N/A",
+                        "Training Time (s)": f"{sum(federated_times):.1f}",
+                    },
+                ]
+                reporting.write_github_step_summary(
+                    "Epoch-by-Epoch Training Comparison", summary_rows, output_dir=TestConfig.OUTPUT_DIR
+                )
+                epoch_rows = reporting.epoch_loss_table_rows(curves)
+                if epoch_rows:
+                    reporting.write_github_step_summary(
+                        "Val Loss by Epoch — Epoch-by-Epoch Comparison",
+                        epoch_rows,
+                        output_dir=TestConfig.OUTPUT_DIR,
+                    )
 
                 return similar_results
             else:
@@ -526,54 +637,123 @@ def test_training_approach_comparison():
         print(f"Fetched test data with {len(data)} samples")
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Test 1: Normal training
+            # Run 1: Normal training (local dev)
             normal_workspace = Path(tmpdir) / "normal-ws"
             normal_workspace.mkdir(parents=True)
 
             print(f"\nSetting up normal training workspace: {normal_workspace}")
             setup_workspace(data, normal_workspace)
 
-            normal_result, normal_val_loss, normal_time = train_normal_model(normal_workspace)
+            normal_result, normal_val_loss, normal_time, normal_curve_df = train_normal_model(normal_workspace)
 
-            # Test 2: Federated training with continuation
+            # Run 2: Federated training (local dev)
             federated_workspace = Path(tmpdir) / "federated-ws"
             federated_workspace.mkdir(parents=True)
 
             print(f"\nSetting up federated training workspace: {federated_workspace}")
             setup_workspace(data, federated_workspace)
 
-            federated_weights, intermediate_val_loss, federated_val_loss, federated_time = train_federated_model(
-                federated_workspace
+            federated_weights, intermediate_val_loss, federated_val_loss, federated_time, fed_curve_df = (
+                train_federated_model(federated_workspace)
             )
+
+            # Run 3: Normal training (PyPI baseline) — skipped if PyPI engine not installed
+            pypi_val_loss, pypi_time, pypi_curve_df = None, None, None
+            if HAS_PYPI_ENGINE:
+                pypi_workspace = Path(tmpdir) / "pypi-ws"
+                pypi_workspace.mkdir(parents=True)
+
+                print(f"\nSetting up PyPI baseline workspace: {pypi_workspace}")
+                setup_workspace_pypi(data, pypi_workspace)
+
+                _, pypi_val_loss, pypi_time, pypi_curve_df = train_normal_model_pypi(pypi_workspace)
+            else:
+                print("\nSkipping PyPI baseline run (mostlyai.engine not installed as PyPI package)")
 
             # Comparison results
             print("\n" + "=" * 80)
             print("COMPARISON RESULTS")
             print("=" * 80)
 
-            print(f"Normal training:")
+            print(f"Normal training (local dev):")
             print(f"  - Result: {normal_result}")
             print(f"  - Final validation loss: {normal_val_loss}")
             print(f"  - Training time: {normal_time:.2f} seconds")
 
-            print(f"\nFederated training:")
+            print(f"\nFederated training (local dev):")
             print(f"  - Federated weights returned: {federated_weights is not None}")
             print(f"  - Intermediate validation loss: {intermediate_val_loss}")
             print(f"  - Final validation loss: {federated_val_loss}")
             print(f"  - Total training time: {federated_time:.2f} seconds")
 
-            # Analysis
+            if HAS_PYPI_ENGINE:
+                print(f"\nNormal training (PyPI baseline):")
+                print(f"  - Final validation loss: {pypi_val_loss}")
+                print(f"  - Training time: {pypi_time:.2f} seconds")
+
+            # Analysis — primary assertion is still local dev normal vs federated
             if normal_val_loss is not None and federated_val_loss is not None:
                 loss_diff = abs(normal_val_loss - federated_val_loss)
                 loss_ratio = loss_diff / max(normal_val_loss, federated_val_loss, 1e-6)
 
-                print(f"\nValidation loss comparison:")
+                print(f"\nValidation loss comparison (local dev normal vs federated):")
                 print(f"  - Absolute difference: {loss_diff:.6f}")
                 print(f"  - Relative difference: {loss_ratio:.2%}")
 
-                # Consider them similar if the relative difference is < 10%
                 similar_results = loss_ratio < 0.10
                 print(f"  - Similar results: {'YES' if similar_results else 'NO'}")
+
+                if pypi_val_loss is not None:
+                    pypi_diff = abs(normal_val_loss - pypi_val_loss)
+                    pypi_ratio = pypi_diff / max(normal_val_loss, pypi_val_loss, 1e-6)
+                    print(f"\nValidation loss comparison (local dev normal vs PyPI baseline):")
+                    print(f"  - Absolute difference: {pypi_diff:.6f}")
+                    print(f"  - Relative difference: {pypi_ratio:.2%}")
+
+                # Build curves dict (used for both plot and epoch table)
+                curves = {}
+                if normal_curve_df is not None:
+                    curves["Normal (dev)"] = normal_curve_df
+                if fed_curve_df is not None:
+                    curves["Federated (dev)"] = fed_curve_df
+                if pypi_curve_df is not None:
+                    curves["Normal (PyPI)"] = pypi_curve_df
+
+                if curves:
+                    TestConfig.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                    reporting.plot_training_curves(
+                        curves, TestConfig.OUTPUT_DIR / "training_approach_curves.png"
+                    )
+
+                summary_rows = [
+                    {
+                        "Approach": "Normal (dev)",
+                        "Final Val Loss": f"{normal_val_loss:.6f}" if normal_val_loss is not None else "N/A",
+                        "Training Time (s)": f"{normal_time:.1f}",
+                    },
+                    {
+                        "Approach": "Federated (dev)",
+                        "Final Val Loss": f"{federated_val_loss:.6f}" if federated_val_loss is not None else "N/A",
+                        "Training Time (s)": f"{federated_time:.1f}",
+                    },
+                ]
+                if HAS_PYPI_ENGINE:
+                    summary_rows.append({
+                        "Approach": "Normal (PyPI)",
+                        "Final Val Loss": f"{pypi_val_loss:.6f}" if pypi_val_loss is not None else "N/A",
+                        "Training Time (s)": f"{pypi_time:.1f}" if pypi_time is not None else "N/A",
+                    })
+
+                reporting.write_github_step_summary(
+                    "Training Approach Comparison", summary_rows, output_dir=TestConfig.OUTPUT_DIR
+                )
+                epoch_rows = reporting.epoch_loss_table_rows(curves)
+                if epoch_rows:
+                    reporting.write_github_step_summary(
+                        "Val Loss by Epoch — Training Approach Comparison",
+                        epoch_rows,
+                        output_dir=TestConfig.OUTPUT_DIR,
+                    )
 
                 return similar_results
             else:
@@ -602,7 +782,7 @@ def main():
         print(f"Device name: {torch.cuda.get_device_name()}")
     else:
         print("Running on CPU")
-    print(f"Matplotlib available: {HAS_MATPLOTLIB}")
+    print(f"PyPI mostlyai.engine available: {HAS_PYPI_ENGINE}")
 
     # Run tests
     results = []
