@@ -89,12 +89,31 @@ except ImportError:
     print("Note: mostlyai-qa library not available - quality assessment features disabled")
 
 
+_METADATA_WRITTEN = False  # written once per process to avoid duplicate sections
+
+_SOURCE_URL = "https://zenodo.org/records/20411920/files/Intensivregister_Deutschland_Versorgungsstufen.csv"
+
+
 def create_test_data():
     """Fetch sample tabular data for testing."""
+    global _METADATA_WRITTEN
 
-    data = pd.read_csv("https://zenodo.org/records/20411920/files/Intensivregister_Deutschland_Versorgungsstufen.csv")
-    # Very large dataset
-    # data = pd.read_csv("https://zenodo.org/records/20411920/files/Intensivregister_Landkreise_Kapazitaeten.csv")
+    data = pd.read_csv(_SOURCE_URL)
+
+    if not _METADATA_WRITTEN:
+        _METADATA_WRITTEN = True
+        reporting.write_dataset_info(
+            df=data,
+            source_url=_SOURCE_URL,
+            config={
+                "Model": TestConfig.MODEL_SIZE,
+                "Max epochs": TestConfig.MAX_EPOCHS,
+                "Epochs per federated iteration": TestConfig.EPOCHS_PER_ITERATION,
+                "QA library available": str(HAS_QA_LIBRARY),
+                "PyPI engine available": str(HAS_PYPI_ENGINE),
+            },
+            output_dir=TestConfig.OUTPUT_DIR,
+        )
 
     return data
 

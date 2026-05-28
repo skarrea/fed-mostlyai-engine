@@ -94,12 +94,33 @@ except ImportError:
     print("Note: mostlyai-qa library not available - quality assessment features disabled")
 
 
+_METADATA_WRITTEN = False  # written once per process to avoid duplicate sections
+
+_SOURCE_URL = "https://zenodo.org/records/20411920/files/Intensivregister_Deutschland_Versorgungsstufen.csv"
+
+
 def create_test_data():
     """Fetch sample tabular data for testing."""
+    global _METADATA_WRITTEN
 
-    data = pd.read_csv("https://zenodo.org/records/20411920/files/Intensivregister_Deutschland_Versorgungsstufen.csv")
-    # Very large dataset
-    # data = pd.read_csv("https://zenodo.org/records/20411920/files/Intensivregister_Landkreise_Kapazitaeten.csv")
+    data = pd.read_csv(_SOURCE_URL)
+
+    if not _METADATA_WRITTEN:
+        _METADATA_WRITTEN = True
+        reporting.write_dataset_info(
+            df=data,
+            source_url=_SOURCE_URL,
+            config={
+                "Model": TestConfig.MODEL_SIZE,
+                "Max epochs": TestConfig.MAX_EPOCHS,
+                "Epochs per federated iteration": TestConfig.EPOCHS_PER_ITERATION,
+                "Generated samples": TestConfig.TEST_SAMPLES,
+                "Quality tolerance": f"{TestConfig.QUALITY_TOLERANCE:.0%}",
+                "QA library available": str(HAS_QA_LIBRARY),
+                "PyPI engine available": str(HAS_PYPI_ENGINE),
+            },
+            output_dir=TestConfig.OUTPUT_DIR,
+        )
 
     return data
 
@@ -186,7 +207,7 @@ def setup_workspace_pypi(data, workspace_dir):
     encode_pypi(workspace_dir=workspace_dir)
 
 
-def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
+def _compare_synthetic_datasets(syn_a, syn_b, a_label="Local Central", other_label="other"):
     """Compare two synthetic DataFrames statistically and return whether they are similar.
 
     Performs column checks, numeric/categorical statistical comparisons, and (if available)
@@ -194,12 +215,13 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
     overall accuracy, cosine similarity, discriminator AUC, univariate accuracy, NNDR distance.
     Passes if ≥ 3/5 available QA metrics are acceptable; falls back to basic stats otherwise.
     """
+    comparison_title = f"Data Quality: {a_label} vs {other_label}"
     # Column check
     cols_a = set(syn_a.columns)
     cols_b = set(syn_b.columns)
     columns_match = cols_a == cols_b
     print(f"\nColumn analysis:")
-    print(f"  Columns A:  {sorted(cols_a)}")
+    print(f"  Columns A ({a_label}):  {sorted(cols_a)}")
     print(f"  Columns B ({other_label}): {sorted(cols_b)}")
     print(f"  Column match: {'✓ YES' if columns_match else '❌ NO'}")
     if not columns_match:
@@ -339,7 +361,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
                             )
                             print(f"  Datasets similar: {'✓ YES' if overall_similar else '❌ NO'}")
                             reporting.write_github_step_summary(
-                                f"Data Quality: Local Central vs {other_label}",
+                                comparison_title,
                                 summary_rows,
                                 output_dir=TestConfig.OUTPUT_DIR,
                             )
@@ -347,7 +369,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
                         else:
                             print(f"  No QA metrics found, falling back to basic assessment.")
                             reporting.write_github_step_summary(
-                                f"Data Quality: Local Central vs {other_label}",
+                                comparison_title,
                                 summary_rows,
                                 output_dir=TestConfig.OUTPUT_DIR,
                             )
@@ -364,7 +386,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, other_label="other"):
         print(f"  Note: Install mostlyai-qa for comprehensive quality assessment")
 
     reporting.write_github_step_summary(
-        f"Data Quality: Local Central vs {other_label}",
+        comparison_title,
         summary_rows,
         output_dir=TestConfig.OUTPUT_DIR,
     )
@@ -499,7 +521,8 @@ def test_data_generation_quality_local_federated_vs_pypi_central():
             print(f"PyPI central synthetic data:    {len(pypi_central_synthetic)} samples")
 
             result = _compare_synthetic_datasets(
-                local_federated_synthetic, pypi_central_synthetic, other_label="PyPI central"
+                local_federated_synthetic, pypi_central_synthetic,
+                a_label="Local Federated", other_label="PyPI Central",
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
             assert result, "Local federated and PyPI central synthetic data are not statistically similar"
@@ -532,22 +555,23 @@ def test_data_generation_quality_pypi_central_vs_pypi_central():
         train_data = data.copy()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            local_federated_ws = Path(tmpdir) / "local-federated-ws"
-            local_federated_ws.mkdir(parents=True)
-            local_federated_synthetic = _generate_synthetic_pypi_central(train_data, local_federated_ws)
+            pypi_a_ws = Path(tmpdir) / "pypi-central-a-ws"
+            pypi_a_ws.mkdir(parents=True)
+            pypi_a_synthetic = _generate_synthetic_pypi_central(train_data, pypi_a_ws)
 
-            pypi_central_ws = Path(tmpdir) / "pypi-central-ws"
-            pypi_central_ws.mkdir(parents=True)
-            pypi_central_synthetic = _generate_synthetic_pypi_central(train_data, pypi_central_ws)
+            pypi_b_ws = Path(tmpdir) / "pypi-central-b-ws"
+            pypi_b_ws.mkdir(parents=True)
+            pypi_b_synthetic = _generate_synthetic_pypi_central(train_data, pypi_b_ws)
 
             print("\n" + "=" * 80)
             print("COMPARISON: PyPI CENTRAL vs PyPI CENTRAL")
             print("=" * 80)
-            print(f"Local federated synthetic data: {len(local_federated_synthetic)} samples")
-            print(f"PyPI central synthetic data:    {len(pypi_central_synthetic)} samples")
+            print(f"PyPI central A synthetic data: {len(pypi_a_synthetic)} samples")
+            print(f"PyPI central B synthetic data: {len(pypi_b_synthetic)} samples")
 
             result = _compare_synthetic_datasets(
-                local_federated_synthetic, pypi_central_synthetic, other_label="PyPI central"
+                pypi_a_synthetic, pypi_b_synthetic,
+                a_label="PyPI Central (A)", other_label="PyPI Central (B)",
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
             assert result, "PyPI central synthetic data self-comparison is not statistically similar"

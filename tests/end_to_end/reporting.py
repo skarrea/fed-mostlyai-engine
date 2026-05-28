@@ -109,6 +109,30 @@ def epoch_loss_table_rows(curves: dict) -> list:
     return merged.to_dict(orient="records")
 
 
+def write_dataset_info(df: "pd.DataFrame", source_url: str, config: dict, output_dir=None) -> None:
+    """Write a dataset metadata table to $GITHUB_STEP_SUMMARY and/or a local file.
+
+    Produces a ``## Test Dataset`` section with provenance, shape, and training config
+    so readers can understand what data was used without digging into the test source.
+
+    Args:
+        df:         The loaded dataset DataFrame (used for row/column counts and basic stats).
+        source_url: Public URL the data was fetched from.
+        config:     Dict of training config key/value pairs to include (e.g. model, epochs).
+        output_dir: Optional directory.  When given, appends to ``{output_dir}/summary.md``.
+    """
+    rows = [
+        {"Property": "Source", "Value": source_url},
+        {"Property": "Rows", "Value": f"{len(df):,}"},
+        {"Property": "Columns", "Value": str(len(df.columns))},
+        {"Property": "Column names", "Value": ", ".join(df.columns.tolist())},
+    ]
+    for k, v in config.items():
+        rows.append({"Property": k, "Value": str(v)})
+
+    write_github_step_summary("Test Dataset", rows, output_dir=output_dir)
+
+
 def write_summary_header(title: str, output_dir=None) -> None:
     """Write a top-level H1 heading to $GITHUB_STEP_SUMMARY and/or a local file.
 
