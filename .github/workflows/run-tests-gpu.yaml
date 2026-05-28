@@ -49,4 +49,12 @@ jobs:
         run: uv run --no-sync pytest tests/end_to_end/test_tabular_sequential_context.py
 
       - name: Run tests -> end_to_end all except sequential
-        run: uv run --no-sync pytest --ignore=tests/end_to_end/test_tabular_sequential.py --ignore=tests/end_to_end/test_tabular_sequential_context.py tests/end_to_end/
+        run: uv run --no-sync pytest -v --tb=short --ignore=tests/end_to_end/test_tabular_sequential.py --ignore=tests/end_to_end/test_tabular_sequential_context.py tests/end_to_end/
+
+      - name: Upload | test-output artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-gpu
+          path: test-output/
+          if-no-files-found: ignore

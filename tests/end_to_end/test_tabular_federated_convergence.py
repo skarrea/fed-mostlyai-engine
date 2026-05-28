@@ -16,6 +16,7 @@ from pathlib import Path
 import sys
 import time
 import torch
+import pytest
 
 # Project root for the local (development) version
 project_root = Path(__file__).parent.parent.parent
@@ -88,13 +89,8 @@ try:
 
     HAS_QA_LIBRARY = True
 except ImportError:
-    try:
-        from mostlyai import qa
-
-        HAS_QA_LIBRARY = True
-    except ImportError:
-        HAS_QA_LIBRARY = False
-        print("Note: mostlyai-qa library not available - quality assessment features disabled")
+    HAS_QA_LIBRARY = False
+    print("Note: mostlyai-qa library not available - quality assessment features disabled")
 
 
 def create_test_data():
@@ -327,9 +323,9 @@ def analyse_weights(weights, epoch, detailed=False):
         if hasattr(tensor, "numpy"):  # PyTorch tensor
             # Handle both CPU and CUDA tensors
             if tensor.is_cuda:
-                values = tensor.cpu().numpy().flatten()
+                values = tensor.detach().cpu().numpy().flatten()
             else:
-                values = tensor.numpy().flatten()
+                values = tensor.detach().numpy().flatten()
         else:  # Already a numpy array or list
             values = np.array(tensor).flatten()
         all_values.extend(values)
@@ -540,17 +536,18 @@ def test_epoch_by_epoch_comparison():
                         output_dir=TestConfig.OUTPUT_DIR,
                     )
 
-                return similar_results
+                assert similar_results, (
+                    f"Loss ratio {loss_ratio:.2%} exceeds 15% tolerance "
+                    f"(fed={final_federated_loss:.6f}, normal={normal_val_loss:.6f})"
+                )
+                return
             else:
                 print("\nCould not compare final validation losses")
-                return False
+                pytest.fail("Could not compare final validation losses (one or both are None)")
 
     except Exception as e:
         print(f"Error during epoch-by-epoch test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_ITERATION, model=TestConfig.MODEL_SIZE):
@@ -586,7 +583,7 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
 
             if federated_state is None:
                 print("❌ FAILED: No federated state returned from federated training")
-                return False
+                pytest.fail("No federated state returned from federated training")
 
             print(f"✓ Received federated state with {len(federated_state['model_weights'])} model parameters")
             print(f"✓ Federated state contains: {list(federated_state.keys())}")
@@ -603,7 +600,7 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
 
             if final_result is None:
                 print("❌ FAILED: Continuation training returned None")
-                return False
+                pytest.fail("Continuation training returned None")
 
             print("✓ Successfully continued training using federated state pattern")
             print(f"✓ Final federated state contains: {list(final_result.keys())}")
@@ -614,16 +611,13 @@ def test_federated_weights_loading(epochs_per_iteration=TestConfig.EPOCHS_PER_IT
             if final_epoch > 0:
                 print(f"✓ Training ran, reached epoch {final_epoch}")
             else:
-                print(f"⚠️  Warning: Epochs did not progress as expected: -> {final_epoch}")
+                pytest.fail(f"Epochs did not progress: epoch={final_epoch}")
 
-            return True
+            return
 
     except Exception as e:
         print(f"❌ FAILED: Error during weights loading test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 def test_training_approach_comparison():
@@ -755,17 +749,18 @@ def test_training_approach_comparison():
                         output_dir=TestConfig.OUTPUT_DIR,
                     )
 
-                return similar_results
+                assert similar_results, (
+                    f"Loss ratio {loss_ratio:.2%} exceeds 10% tolerance "
+                    f"(normal={normal_val_loss:.6f}, federated={federated_val_loss:.6f})"
+                )
+                return
             else:
                 print("\nCould not compare validation losses (one or both are None)")
-                return False
+                pytest.fail("Could not compare validation losses (one or both are None)")
 
     except Exception as e:
         print(f"Error during comparison test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 def main():
@@ -784,20 +779,31 @@ def main():
         print("Running on CPU")
     print(f"PyPI mostlyai.engine available: {HAS_PYPI_ENGINE}")
 
+    def _run_test(test_name, test_fn):
+        try:
+            test_fn()
+            return test_name, True
+        except BaseException as e:
+            if isinstance(e, pytest.skip.Exception):
+                print(f"⏭  {test_name}: SKIPPED")
+                return test_name, True
+            print(f"❌ {test_name}: FAILED — {e}")
+            return test_name, False
+
     # Run tests
     results = []
 
     # Test 1: Enhanced federated state pattern (new comprehensive test)
-    results.append(("Enhanced Federated State Pattern", test_enhanced_federated_state_pattern()))
+    results.append(_run_test("Enhanced Federated State Pattern", test_enhanced_federated_state_pattern))
 
     # Test 2: Federated weights loading
-    results.append(("Federated Weights Loading", test_federated_weights_loading()))
+    results.append(_run_test("Federated Weights Loading", test_federated_weights_loading))
 
     # Test 3: Training approach comparison
-    results.append(("Training Approach Comparison", test_training_approach_comparison()))
+    results.append(_run_test("Training Approach Comparison", test_training_approach_comparison))
 
     # Test 4: Epoch-by-epoch analysis
-    results.append(("Epoch-by-Epoch Analysis", test_epoch_by_epoch_comparison()))
+    results.append(_run_test("Epoch-by-Epoch Analysis", test_epoch_by_epoch_comparison))
 
     # Print summary
     print("\n" + "=" * 80)
@@ -863,7 +869,7 @@ def test_enhanced_federated_state_pattern():
 
             if result1 is None:
                 print("❌ FAILED: Initial training returned None")
-                return False
+                pytest.fail("Initial training returned None")
 
             print("✓ Initial training successful")
             print(f"✓ Federated state contains: {list(result1.keys())}")
@@ -881,7 +887,7 @@ def test_enhanced_federated_state_pattern():
 
             if result2 is None:
                 print("❌ FAILED: Continuation training returned None")
-                return False
+                pytest.fail("Continuation training returned None")
 
             print("✓ Continuation with complete state successful")
 
@@ -904,7 +910,7 @@ def test_enhanced_federated_state_pattern():
 
             if result3 is None:
                 print("❌ FAILED: Partial state continuation returned None")
-                return False
+                pytest.fail("Partial state continuation returned None")
 
             print("✓ Continuation with partial state successful (None guards working)")
 
@@ -926,7 +932,7 @@ def test_enhanced_federated_state_pattern():
 
             if result4 is None:
                 print("❌ FAILED: Minimal state continuation returned None")
-                return False
+                pytest.fail("Minimal state continuation returned None")
 
             print("✓ Continuation with minimal state successful")
 
@@ -941,7 +947,7 @@ def test_enhanced_federated_state_pattern():
                 missing_keys = expected_keys - actual_keys
                 if missing_keys:
                     print(f"❌ FAILED: State {i} missing keys: {missing_keys}")
-                    return False
+                    pytest.fail(f"State {i} missing keys: {missing_keys}")
 
                 # Verify training metrics structure
                 metrics_keys = {"epoch", "steps", "samples", "learn_rate", "trn_loss", "val_loss"}
@@ -949,7 +955,7 @@ def test_enhanced_federated_state_pattern():
                 missing_metrics_keys = metrics_keys - actual_metrics_keys
                 if missing_metrics_keys:
                     print(f"❌ FAILED: State {i} missing metrics keys: {missing_metrics_keys}")
-                    return False
+                    pytest.fail(f"State {i} missing metrics keys: {missing_metrics_keys}")
 
             print("✓ All federated states have consistent structure")
 
@@ -960,7 +966,7 @@ def test_enhanced_federated_state_pattern():
             epochs = [state["training_metrics"]["epoch"] for state in all_states]
             if any(e <= 0 for e in epochs):
                 print(f"❌ FAILED: Epochs not reported correctly: {epochs}")
-                return False
+                pytest.fail(f"Epochs not reported correctly: {epochs}")
 
             print(f"✓ Epochs reported correctly: {epochs}")
 
@@ -968,7 +974,7 @@ def test_enhanced_federated_state_pattern():
             steps = [state["training_metrics"]["steps"] for state in all_states]
             if any(s <= 0 for s in steps):
                 print(f"❌ FAILED: Steps not reported correctly: {steps}")
-                return False
+                pytest.fail(f"Steps not reported correctly: {steps}")
 
             print(f"✓ Steps reported correctly: {steps}")
 
@@ -989,16 +995,16 @@ def test_enhanced_federated_state_pattern():
 
                 # Convert to numpy if needed (handle both CPU and GPU tensors)
                 if hasattr(w_current, "cpu"):
-                    w_current = w_current.cpu().numpy()
+                    w_current = w_current.detach().cpu().numpy()
                 elif hasattr(w_current, "numpy"):
-                    w_current = w_current.numpy()
+                    w_current = w_current.detach().numpy()
                 else:
                     w_current = np.array(w_current)
 
                 if hasattr(w_next, "cpu"):
-                    w_next = w_next.cpu().numpy()
+                    w_next = w_next.detach().cpu().numpy()
                 elif hasattr(w_next, "numpy"):
-                    w_next = w_next.numpy()
+                    w_next = w_next.detach().numpy()
                 else:
                     w_next = np.array(w_next)
 
@@ -1011,6 +1017,7 @@ def test_enhanced_federated_state_pattern():
             if not weights_changed:
                 print("⚠️  Warning: Weights appear unchanged between iterations")
                 print("   This may indicate training did not continue properly")
+                pytest.fail("Weights appear unchanged between iterations — training may not have continued properly")
             else:
                 print("✓ Weight evolution verified: training continued across iterations")
 
@@ -1025,14 +1032,11 @@ def test_enhanced_federated_state_pattern():
             print("  - Correct state evolution")
             print("  - Weight evolution verified (training continues)")
 
-            return True
+            return
 
     except Exception as e:
         print(f"❌ FAILED: Error during enhanced federated state test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 if __name__ == "__main__":

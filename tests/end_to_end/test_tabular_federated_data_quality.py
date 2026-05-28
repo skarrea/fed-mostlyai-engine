@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import sys
+import pytest
 
 # Project root for the local (development) version
 project_root = Path(__file__).parent.parent.parent
@@ -89,13 +90,8 @@ try:
 
     HAS_QA_LIBRARY = True
 except ImportError:
-    try:
-        from mostlyai import qa
-
-        HAS_QA_LIBRARY = True
-    except ImportError:
-        HAS_QA_LIBRARY = False
-        print("Note: mostlyai-qa library not available - quality assessment features disabled")
+    HAS_QA_LIBRARY = False
+    print("Note: mostlyai-qa library not available - quality assessment features disabled")
 
 
 def create_test_data():
@@ -392,14 +388,12 @@ def test_data_generation_quality_local_central_vs_local_federated():
                 local_central_synthetic, local_federated_synthetic, other_label="local federated"
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
-            return result
+            assert result, "Local central and local federated synthetic data are not statistically similar"
+            return
 
     except Exception as e:
         print(f"Error during local central vs local federated test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 def test_data_generation_quality_local_central_vs_pypi_central():
@@ -416,7 +410,7 @@ def test_data_generation_quality_local_central_vs_pypi_central():
 
     if not HAS_PYPI_ENGINE:
         print("\nSkipping: PyPI mostlyai.engine not available.")
-        return True
+        pytest.skip("PyPI mostlyai.engine not available")
 
     try:
         data = create_test_data()
@@ -442,14 +436,12 @@ def test_data_generation_quality_local_central_vs_pypi_central():
                 local_central_synthetic, pypi_central_synthetic, other_label="PyPI central"
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
-            return result
+            assert result, "Local central and PyPI central synthetic data are not statistically similar"
+            return
 
     except Exception as e:
         print(f"Error during local central vs PyPI central test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 def test_data_generation_quality_local_federated_vs_pypi_central():
@@ -466,7 +458,7 @@ def test_data_generation_quality_local_federated_vs_pypi_central():
 
     if not HAS_PYPI_ENGINE:
         print("\nSkipping: PyPI mostlyai.engine not available.")
-        return True
+        pytest.skip("PyPI mostlyai.engine not available")
 
     try:
         data = create_test_data()
@@ -492,14 +484,12 @@ def test_data_generation_quality_local_federated_vs_pypi_central():
                 local_federated_synthetic, pypi_central_synthetic, other_label="PyPI central"
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
-            return result
+            assert result, "Local federated and PyPI central synthetic data are not statistically similar"
+            return
 
     except Exception as e:
         print(f"Error during local federated vs PyPI central test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 def test_data_generation_quality_pypi_central_vs_pypi_central():
@@ -516,7 +506,7 @@ def test_data_generation_quality_pypi_central_vs_pypi_central():
 
     if not HAS_PYPI_ENGINE:
         print("\nSkipping: PyPI mostlyai.engine not available.")
-        return True
+        pytest.skip("PyPI mostlyai.engine not available")
 
     try:
         data = create_test_data()
@@ -542,14 +532,12 @@ def test_data_generation_quality_pypi_central_vs_pypi_central():
                 local_federated_synthetic, pypi_central_synthetic, other_label="PyPI central"
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
-            return result
+            assert result, "PyPI central synthetic data self-comparison is not statistically similar"
+            return
 
     except Exception as e:
         print(f"Error during local federated vs PyPI central test: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+        raise
 
 
 def main():
@@ -557,37 +545,48 @@ def main():
     print("DATA GENERATION QUALITY TEST SUITE")
     print("=" * 80)
 
+    def _run_test(test_name, test_fn):
+        try:
+            test_fn()
+            return test_name, True
+        except BaseException as e:
+            if isinstance(e, pytest.skip.Exception):
+                print(f"⏭  {test_name}: SKIPPED")
+                return test_name, True
+            print(f"❌ {test_name}: FAILED — {e}")
+            return test_name, False
+
     results = []
 
     # Test 1: Local central vs local federated
     results.append(
-        (
+        _run_test(
             "Data Generation Quality (local central vs local federated)",
-            test_data_generation_quality_local_central_vs_local_federated(),
+            test_data_generation_quality_local_central_vs_local_federated,
         )
     )
 
     # Test 2: Local central vs PyPI central
     results.append(
-        (
+        _run_test(
             "Data Generation Quality (local central vs PyPI central)",
-            test_data_generation_quality_local_central_vs_pypi_central(),
+            test_data_generation_quality_local_central_vs_pypi_central,
         )
     )
 
     # Test 3: Local federated vs PyPI central
     results.append(
-        (
+        _run_test(
             "Data Generation Quality (local federated vs PyPI central)",
-            test_data_generation_quality_local_federated_vs_pypi_central(),
+            test_data_generation_quality_local_federated_vs_pypi_central,
         )
     )
 
     # Test 4: PyPI central vs PyPI central
     results.append(
-        (
+        _run_test(
             "Data Generation Quality (PyPI central vs PyPI central)",
-            test_data_generation_quality_pypi_central_vs_pypi_central(),
+            test_data_generation_quality_pypi_central_vs_pypi_central,
         )
     )
 
