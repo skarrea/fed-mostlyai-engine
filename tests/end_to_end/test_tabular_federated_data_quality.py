@@ -67,16 +67,14 @@ class TestConfig:
 
     # Training parameters
     EPOCHS_PER_ITERATION = 1  # Numbers of epochs per federated iteration
-    MAX_EPOCHS = 50  # Maximum number of epochs for training
+    MAX_EPOCHS = 100  # Maximum number of epochs for training
     MODEL_SIZE = "MOSTLY_AI/Medium"  # Model size to use
 
     # Data generation parameters
-    TOTAL_SAMPLES = 3000  # Total samples to create
-    TEST_SAMPLES = 1000  # Samples used for quality testing
+    TEST_SAMPLES = 3000  # Samples used for quality testing
 
     # Quality assessment
-    GENERATE_HTML_REPORTS = True  # Set to True to generate HTML reports (slower)
-    QUALITY_TOLERANCE = 0.15  # 15% tolerance for quality score comparison
+    QUALITY_TOLERANCE = 0.10  # 15% tolerance for quality score comparison
 
     # Output directory for plots and summary artifacts
     OUTPUT_DIR = Path("test-output/quality")
