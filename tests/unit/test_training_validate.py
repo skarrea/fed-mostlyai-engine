@@ -32,6 +32,7 @@ from mostlyai.engine.domain import ModelType
 # Export / API surface
 # ---------------------------------------------------------------------------
 
+
 def test_validate_is_exported_in_all():
     assert "validate" in mostlyai.engine.__all__
 
@@ -43,6 +44,7 @@ def test_validate_is_callable():
 # ---------------------------------------------------------------------------
 # Input validation (error paths — no workspace needed)
 # ---------------------------------------------------------------------------
+
 
 def test_validate_raises_if_federated_state_is_none(tmp_path):
     with pytest.raises(ValueError, match="federated_state"):
@@ -65,6 +67,7 @@ def test_validate_raises_for_language_workspace(tmp_path):
 # ---------------------------------------------------------------------------
 # Dispatch correctness (tabular path, mocked low-level train)
 # ---------------------------------------------------------------------------
+
 
 def test_validate_passes_validate_only_true_to_tabular_train(tmp_path):
     """validate() must forward validate_only=True to the low-level tabular train."""
@@ -105,8 +108,14 @@ def test_validate_does_not_pass_training_only_params(tmp_path):
     fake_weights = {"layer": np.zeros(1)}
     fake_result = {
         "model_weights": fake_weights,
-        "training_metrics": {"epoch": 0.0, "steps": 0, "samples": 0,
-                             "learn_rate": None, "trn_loss": None, "val_loss": 0.1},
+        "training_metrics": {
+            "epoch": 0.0,
+            "steps": 0,
+            "samples": 0,
+            "learn_rate": None,
+            "trn_loss": None,
+            "val_loss": 0.1,
+        },
     }
     with patch("mostlyai.engine.training.resolve_model_type", return_value=ModelType.tabular):
         with patch(
@@ -132,11 +141,18 @@ def test_validate_does_not_pass_training_only_params(tmp_path):
 def test_validate_forwards_optional_params(tmp_path):
     """validate() must correctly forward model, batch_size, device, etc. when provided."""
     import torch
+
     fake_weights = {"layer": np.zeros(1)}
     fake_result = {
         "model_weights": fake_weights,
-        "training_metrics": {"epoch": 0.0, "steps": 0, "samples": 0,
-                             "learn_rate": None, "trn_loss": None, "val_loss": 0.3},
+        "training_metrics": {
+            "epoch": 0.0,
+            "steps": 0,
+            "samples": 0,
+            "learn_rate": None,
+            "trn_loss": None,
+            "val_loss": 0.3,
+        },
     }
     with patch("mostlyai.engine.training.resolve_model_type", return_value=ModelType.tabular):
         with patch(

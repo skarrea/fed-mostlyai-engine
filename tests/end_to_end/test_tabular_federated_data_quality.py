@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 End-to-end tests comparing data generation quality across training approaches.
 
@@ -10,11 +24,12 @@ These tests evaluate whether synthetic data produced by:
 converge to statistically similar distributions.
 """
 
-import tempfile
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
 import pytest
 
 # Project root for the dev checkout
@@ -48,15 +63,15 @@ for _key in list(sys.modules.keys()):
 # Now add the dev path
 sys.path.insert(0, str(project_root))
 
-from mostlyai.engine import split, analyze, encode, train, generate
-from mostlyai.engine.domain import ModelEncodingType
-from mostlyai.engine._workspace import Workspace
+from mostlyai.engine import analyze, encode, generate, split, train  # noqa: E402
+from mostlyai.engine._workspace import Workspace  # noqa: E402
+from mostlyai.engine.domain import ModelEncodingType  # noqa: E402
 
 # Shared reporting utilities (plots + GitHub step summary)
 _test_dir = Path(__file__).parent
 if str(_test_dir) not in sys.path:
     sys.path.insert(0, str(_test_dir))
-import reporting
+import reporting  # noqa: E402
 
 
 # ============================================
@@ -230,8 +245,13 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
     all_similar = True
     summary_rows = []  # Collected for GitHub step summary
     print(f"\nStatistical comparison (numeric):")
-    for col in ["bundesland_id", "anzahl_meldebereiche", "faelle_covid_aktuell", "intensivbetten_belegt",
-                "intensivbetten_frei"]:
+    for col in [
+        "bundesland_id",
+        "anzahl_meldebereiche",
+        "faelle_covid_aktuell",
+        "intensivbetten_belegt",
+        "intensivbetten_frei",
+    ]:
         if col in syn_a.columns:
             try:
                 a_mean, a_std = syn_a[col].mean(), syn_a[col].std()
@@ -253,18 +273,22 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
 
                 if not col_similar:
                     all_similar = False
-                summary_rows.append({
-                    "Metric": f"{col} (mean diff)",
-                    "Value": f"{mean_rel_diff:.1%}",
-                    "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
-                    "Pass": "✓" if mean_ok else "❌",
-                })
-                summary_rows.append({
-                    "Metric": f"{col} (std diff)",
-                    "Value": f"{std_rel_diff:.1%}",
-                    "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
-                    "Pass": "✓" if std_ok else "❌",
-                })
+                summary_rows.append(
+                    {
+                        "Metric": f"{col} (mean diff)",
+                        "Value": f"{mean_rel_diff:.1%}",
+                        "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
+                        "Pass": "✓" if mean_ok else "❌",
+                    }
+                )
+                summary_rows.append(
+                    {
+                        "Metric": f"{col} (std diff)",
+                        "Value": f"{std_rel_diff:.1%}",
+                        "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
+                        "Pass": "✓" if std_ok else "❌",
+                    }
+                )
             except Exception as e:
                 print(f"    Could not compare {col}: {e}")
                 all_similar = False
@@ -282,12 +306,14 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
                 print(f"  {col}: TV distance={tv_distance:.3f} - {'✓' if similar else '❌'}")
                 if not similar:
                     all_similar = False
-                summary_rows.append({
-                    "Metric": f"{col} (TV distance)",
-                    "Value": f"{tv_distance:.3f}",
-                    "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
-                    "Pass": "✓" if similar else "❌",
-                })
+                summary_rows.append(
+                    {
+                        "Metric": f"{col} (TV distance)",
+                        "Value": f"{tv_distance:.3f}",
+                        "Threshold": f"<{TestConfig.QUALITY_TOLERANCE:.0%}",
+                        "Pass": "✓" if similar else "❌",
+                    }
+                )
             except Exception as e:
                 print(f"    Could not compare {col}: {e}")
                 all_similar = False
@@ -318,14 +344,28 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
                             acc_ok = overall_accuracy > 0.6
                             print(f"    Overall accuracy: {overall_accuracy:.3f} - {'✓' if acc_ok else '❌'}")
                             available_metrics.append(acc_ok)
-                            summary_rows.append({"Metric": "Overall Accuracy", "Value": f"{overall_accuracy:.3f}", "Threshold": ">0.6", "Pass": "✓" if acc_ok else "❌"})
+                            summary_rows.append(
+                                {
+                                    "Metric": "Overall Accuracy",
+                                    "Value": f"{overall_accuracy:.3f}",
+                                    "Threshold": ">0.6",
+                                    "Pass": "✓" if acc_ok else "❌",
+                                }
+                            )
 
                         cosine_sim = metrics_dict.get("similarity", {}).get("cosine_similarity_training_synthetic")
                         if cosine_sim is not None:
                             cos_ok = cosine_sim > 0.7
                             print(f"    Cosine similarity: {cosine_sim:.3f} - {'✓' if cos_ok else '❌'}")
                             available_metrics.append(cos_ok)
-                            summary_rows.append({"Metric": "Cosine Similarity", "Value": f"{cosine_sim:.3f}", "Threshold": ">0.7", "Pass": "✓" if cos_ok else "❌"})
+                            summary_rows.append(
+                                {
+                                    "Metric": "Cosine Similarity",
+                                    "Value": f"{cosine_sim:.3f}",
+                                    "Threshold": ">0.7",
+                                    "Pass": "✓" if cos_ok else "❌",
+                                }
+                            )
 
                         discriminator_auc = metrics_dict.get("similarity", {}).get(
                             "discriminator_auc_training_synthetic"
@@ -334,21 +374,42 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
                             auc_ok = abs(discriminator_auc - 0.5) < 0.2
                             print(f"    Discriminator AUC: {discriminator_auc:.3f} - {'✓' if auc_ok else '❌'}")
                             available_metrics.append(auc_ok)
-                            summary_rows.append({"Metric": "Discriminator AUC", "Value": f"{discriminator_auc:.3f}", "Threshold": "|AUC-0.5|<0.2", "Pass": "✓" if auc_ok else "❌"})
+                            summary_rows.append(
+                                {
+                                    "Metric": "Discriminator AUC",
+                                    "Value": f"{discriminator_auc:.3f}",
+                                    "Threshold": "|AUC-0.5|<0.2",
+                                    "Pass": "✓" if auc_ok else "❌",
+                                }
+                            )
 
                         univariate_acc = metrics_dict.get("accuracy", {}).get("univariate")
                         if univariate_acc is not None:
                             uni_ok = univariate_acc > 0.8
                             print(f"    Univariate accuracy: {univariate_acc:.3f} - {'✓' if uni_ok else '❌'}")
                             available_metrics.append(uni_ok)
-                            summary_rows.append({"Metric": "Univariate Accuracy", "Value": f"{univariate_acc:.3f}", "Threshold": ">0.8", "Pass": "✓" if uni_ok else "❌"})
+                            summary_rows.append(
+                                {
+                                    "Metric": "Univariate Accuracy",
+                                    "Value": f"{univariate_acc:.3f}",
+                                    "Threshold": ">0.8",
+                                    "Pass": "✓" if uni_ok else "❌",
+                                }
+                            )
 
                         nndr = metrics_dict.get("distances", {}).get("nndr_training")
                         if nndr is not None:
                             nndr_ok = nndr < 0.8
                             print(f"    NNDR distance: {nndr:.3f} - {'✓' if nndr_ok else '❌'}")
                             available_metrics.append(nndr_ok)
-                            summary_rows.append({"Metric": "NNDR Distance", "Value": f"{nndr:.3f}", "Threshold": "<0.8", "Pass": "✓" if nndr_ok else "❌"})
+                            summary_rows.append(
+                                {
+                                    "Metric": "NNDR Distance",
+                                    "Value": f"{nndr:.3f}",
+                                    "Threshold": "<0.8",
+                                    "Pass": "✓" if nndr_ok else "❌",
+                                }
+                            )
 
                         if available_metrics:
                             similar_count = sum(available_metrics)
@@ -519,8 +580,10 @@ def test_data_generation_quality_dev_federated_vs_pypi_central():
             print(f"PyPI central synthetic data:    {len(pypi_central_synthetic)} samples")
 
             result = _compare_synthetic_datasets(
-                dev_federated_synthetic, pypi_central_synthetic,
-                a_label="Dev Federated", other_label="PyPI Central",
+                dev_federated_synthetic,
+                pypi_central_synthetic,
+                a_label="Dev Federated",
+                other_label="PyPI Central",
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
             assert result, "Dev federated and PyPI central synthetic data are not statistically similar"
@@ -568,8 +631,10 @@ def test_data_generation_quality_pypi_central_vs_pypi_central():
             print(f"PyPI central B synthetic data: {len(pypi_b_synthetic)} samples")
 
             result = _compare_synthetic_datasets(
-                pypi_a_synthetic, pypi_b_synthetic,
-                a_label="PyPI Central (A)", other_label="PyPI Central (B)",
+                pypi_a_synthetic,
+                pypi_b_synthetic,
+                a_label="PyPI Central (A)",
+                other_label="PyPI Central (B)",
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
             assert result, "PyPI central synthetic data self-comparison is not statistically similar"

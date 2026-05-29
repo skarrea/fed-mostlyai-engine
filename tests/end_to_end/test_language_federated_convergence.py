@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """
 End-to-end test to compare normal training vs federated training convergence for language models.
 
@@ -9,24 +22,25 @@ This test evaluates whether:
 Both approaches should converge to similar results.
 """
 
+import sys
 import tempfile
-import pandas as pd
-import numpy as np
+import time
 from itertools import chain
 from pathlib import Path
-import sys
-import time
-import torch
+
+import numpy as np
+import pandas as pd
 import pytest
+import torch
 
 # Add the project root to the Python path for imports
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from mostlyai.engine import split, analyze, encode, train, generate
-from mostlyai.engine._language.lstm import LSTMFromScratchConfig
-from mostlyai.engine.domain import ModelEncodingType
-from mostlyai.engine._workspace import Workspace
+from mostlyai.engine import analyze, encode, generate, split, train  # noqa: E402
+from mostlyai.engine._language.lstm import LSTMFromScratchConfig  # noqa: E402
+from mostlyai.engine._workspace import Workspace  # noqa: E402
+from mostlyai.engine.domain import ModelEncodingType  # noqa: E402
 
 
 # ============================================

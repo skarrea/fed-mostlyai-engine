@@ -1,4 +1,5 @@
 # Copyright 2025 MOSTLY AI
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.

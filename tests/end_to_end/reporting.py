@@ -1,3 +1,17 @@
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 Shared reporting utilities for end-to-end tests.
 
@@ -55,12 +69,14 @@ def plot_training_curves(curves: dict, output_path) -> bool:
         epochs = df["epoch"] if "epoch" in df.columns else range(1, len(df) + 1)
 
         if "val_loss" in df.columns:
-            ax.plot(epochs, df["val_loss"], marker="o", markersize=3, linewidth=1.5,
-                    color=colour, label=f"{label} (val)")
+            ax.plot(
+                epochs, df["val_loss"], marker="o", markersize=3, linewidth=1.5, color=colour, label=f"{label} (val)"
+            )
 
         if "trn_loss" in df.columns and df["trn_loss"].notna().any():
-            ax.plot(epochs, df["trn_loss"], linestyle="--", linewidth=1.0, alpha=0.5,
-                    color=colour, label=f"{label} (train)")
+            ax.plot(
+                epochs, df["trn_loss"], linestyle="--", linewidth=1.0, alpha=0.5, color=colour, label=f"{label} (train)"
+            )
 
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Loss")

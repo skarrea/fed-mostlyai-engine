@@ -32,6 +32,7 @@ from .conftest import MockData
 # Shared fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def small_tgt_data():
     """Minimal flat tabular dataset for fast validate() round-trip tests."""
@@ -88,6 +89,7 @@ def trained_federated_state(prepared_workspace):
 # Structure tests
 # ---------------------------------------------------------------------------
 
+
 class TestValidateReturnStructure:
     """Verify the shape and types of the validate() return value."""
 
@@ -142,6 +144,7 @@ class TestValidateReturnStructure:
 # ---------------------------------------------------------------------------
 # Correctness tests
 # ---------------------------------------------------------------------------
+
 
 class TestValidateCorrectness:
     """Verify that validate() computes the expected values correctly."""

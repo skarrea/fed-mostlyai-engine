@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """
 End-to-end test to compare normal training vs federated training convergence.
 
@@ -9,14 +22,15 @@ This test evaluates whether:
 Both approaches should converge to similar results.
 """
 
-import tempfile
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import sys
+import tempfile
 import time
-import torch
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
 import pytest
+import torch
 
 # Project root for the local (development) version
 project_root = Path(__file__).parent.parent.parent
@@ -47,15 +61,15 @@ for _key in list(sys.modules.keys()):
 
 sys.path.insert(0, str(project_root))
 
-from mostlyai.engine import split, analyze, encode, train
-from mostlyai.engine.domain import ModelEncodingType
-from mostlyai.engine._workspace import Workspace
+from mostlyai.engine import analyze, encode, split, train  # noqa: E402
+from mostlyai.engine._workspace import Workspace  # noqa: E402
+from mostlyai.engine.domain import ModelEncodingType  # noqa: E402
 
 # Shared reporting utilities (plots + GitHub step summary)
 _test_dir = Path(__file__).parent
 if str(_test_dir) not in sys.path:
     sys.path.insert(0, str(_test_dir))
-import reporting
+import reporting  # noqa: E402
 
 
 # ============================================
@@ -521,9 +535,7 @@ def test_epoch_by_epoch_comparison():
                     curves["Federated (epoch-by-epoch)"] = fed_curve_df
                 if curves:
                     TestConfig.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-                    reporting.plot_training_curves(
-                        curves, TestConfig.OUTPUT_DIR / "epoch_by_epoch_training_curves.png"
-                    )
+                    reporting.plot_training_curves(curves, TestConfig.OUTPUT_DIR / "epoch_by_epoch_training_curves.png")
                 summary_rows = [
                     {
                         "Approach": "Normal",
@@ -726,9 +738,7 @@ def test_training_approach_comparison():
 
                 if curves:
                     TestConfig.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-                    reporting.plot_training_curves(
-                        curves, TestConfig.OUTPUT_DIR / "training_approach_curves.png"
-                    )
+                    reporting.plot_training_curves(curves, TestConfig.OUTPUT_DIR / "training_approach_curves.png")
 
                 summary_rows = [
                     {
@@ -743,11 +753,13 @@ def test_training_approach_comparison():
                     },
                 ]
                 if HAS_PYPI_ENGINE:
-                    summary_rows.append({
-                        "Approach": "Normal (PyPI)",
-                        "Final Val Loss": f"{pypi_val_loss:.6f}" if pypi_val_loss is not None else "N/A",
-                        "Training Time (s)": f"{pypi_time:.1f}" if pypi_time is not None else "N/A",
-                    })
+                    summary_rows.append(
+                        {
+                            "Approach": "Normal (PyPI)",
+                            "Final Val Loss": f"{pypi_val_loss:.6f}" if pypi_val_loss is not None else "N/A",
+                            "Training Time (s)": f"{pypi_time:.1f}" if pypi_time is not None else "N/A",
+                        }
+                    )
 
                 reporting.write_github_step_summary(
                     "Training Approach Comparison", summary_rows, output_dir=TestConfig.OUTPUT_DIR

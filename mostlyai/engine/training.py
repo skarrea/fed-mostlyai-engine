@@ -1,4 +1,5 @@
 # Copyright 2025 MOSTLY AI
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -179,7 +180,9 @@ def validate(
             differential_privacy=differential_privacy,
             update_progress=update_progress,
             device=device,
-            max_sequence_window=max_sequence_window if max_sequence_window is not None else args["max_sequence_window"].default,
+            max_sequence_window=max_sequence_window
+            if max_sequence_window is not None
+            else args["max_sequence_window"].default,
             federated_state=federated_state,
             validate_only=True,
         )

@@ -29,6 +29,7 @@ repos:
   hooks:
     - id: insert-license
       files: \.py$
+      exclude: '^tests/end_to_end/(test_tabular_federated_data_quality|test_tabular_federated_convergence|test_language_federated_convergence|reporting)\.py$'
       args:
         # - --remove-header
         - --license-filepath
