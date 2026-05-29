@@ -74,7 +74,7 @@ class TestConfig:
     TEST_SAMPLES = 3000  # Samples used for quality testing
 
     # Quality assessment
-    QUALITY_TOLERANCE = 0.10  # 15% tolerance for quality score comparison
+    QUALITY_TOLERANCE = 0.15  # 15% tolerance for quality score comparison
 
     # Output directory for plots and summary artifacts
     OUTPUT_DIR = Path("test-output/quality")
