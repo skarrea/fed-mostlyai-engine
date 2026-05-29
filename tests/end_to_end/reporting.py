@@ -3,7 +3,7 @@ Shared reporting utilities for end-to-end tests.
 
 Provides:
 - plot_training_curves(): save a val_loss / trn_loss PNG for multiple training runs
-- write_github_step_summary(): emit a markdown table to $GITHUB_STEP_SUMMARY and/or a local file
+- write_github_step_summary(): emit a markdown table to $GITHUB_STEP_SUMMARY and/or an artifact file
 """
 
 import os
@@ -110,7 +110,7 @@ def epoch_loss_table_rows(curves: dict) -> list:
 
 
 def write_dataset_info(df: "pd.DataFrame", source_url: str, config: dict, output_dir=None) -> None:
-    """Write a dataset metadata table to $GITHUB_STEP_SUMMARY and/or a local file.
+    """Write a dataset metadata table to $GITHUB_STEP_SUMMARY and/or an artifact file.
 
     Produces a ``## Test Dataset`` section with provenance, shape, and training config
     so readers can understand what data was used without digging into the test source.
@@ -134,7 +134,7 @@ def write_dataset_info(df: "pd.DataFrame", source_url: str, config: dict, output
 
 
 def write_summary_header(title: str, output_dir=None) -> None:
-    """Write a top-level H1 heading to $GITHUB_STEP_SUMMARY and/or a local file.
+    """Write a top-level H1 heading to $GITHUB_STEP_SUMMARY and/or an artifact file.
 
     Intended to be called once at the start of a test run to provide context for all
     subsequent tables appended to the same summary page.
@@ -161,10 +161,10 @@ def write_summary_header(title: str, output_dir=None) -> None:
 
 
 def write_github_step_summary(title: str, rows: list, output_dir=None) -> None:
-    """Write a markdown table to $GITHUB_STEP_SUMMARY and optionally to a local file.
+    """Write a markdown table to $GITHUB_STEP_SUMMARY and optionally to an artifact file.
 
     The table is appended (not overwritten) so multiple test sections can accumulate
-    in the same summary page.  A local ``summary.md`` file is written alongside plots
+    in the same summary page.  A ``summary.md`` artifact file is written alongside plots
     when *output_dir* is provided — useful for uploading as a GitHub Actions artifact.
 
     Args:
@@ -205,7 +205,7 @@ def write_github_step_summary(title: str, rows: list, output_dir=None) -> None:
             fh.write(markdown)
         print(f"  → appended to $GITHUB_STEP_SUMMARY")
 
-    # Write to a local artifact file for download / archival
+    # Write to an artifact file for download / archival
     if output_dir:
         summary_file = Path(output_dir) / "summary.md"
         summary_file.parent.mkdir(parents=True, exist_ok=True)

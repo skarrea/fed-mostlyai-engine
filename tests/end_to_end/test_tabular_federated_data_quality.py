@@ -3,8 +3,8 @@
 End-to-end tests comparing data generation quality across training approaches.
 
 These tests evaluate whether synthetic data produced by:
-1. Local central training
-2. Local federated training
+1. Dev central training
+2. Dev federated training
 3. PyPI central training
 
 converge to statistically similar distributions.
@@ -17,10 +17,10 @@ from pathlib import Path
 import sys
 import pytest
 
-# Project root for the local (development) version
+# Project root for the dev checkout
 project_root = Path(__file__).parent.parent.parent
 
-# Import PyPI version first (before adding local path)
+# Import PyPI version first (before adding the dev path)
 try:
     import mostlyai.engine as _mostlyai_engine_pypi
     from mostlyai.engine import split as split_pypi
@@ -40,12 +40,12 @@ except ImportError:
     HAS_PYPI_ENGINE = False
     print("Note: PyPI mostlyai.engine not available - PyPI comparison tests will be skipped")
 
-# Clear cached mostlyai modules so the local development version can be loaded fresh
+# Clear cached mostlyai modules so the dev version can be loaded fresh
 for _key in list(sys.modules.keys()):
     if _key.startswith("mostlyai"):
         del sys.modules[_key]
 
-# Now add local path for development version
+# Now add the dev path
 sys.path.insert(0, str(project_root))
 
 from mostlyai.engine import split, analyze, encode, train, generate
@@ -145,21 +145,21 @@ def setup_workspace(data, workspace_dir):
     encode(workspace_dir=workspace_dir)
 
 
-def _generate_synthetic_local_central(train_data, workspace_dir):
-    """Train centrally with the local development engine and return a synthetic DataFrame."""
+def _generate_synthetic_dev_central(train_data, workspace_dir):
+    """Train centrally with the dev engine and return a synthetic DataFrame."""
     setup_workspace(train_data, workspace_dir)
-    print("Training local central model...")
+    print("Training dev central model...")
     train(workspace_dir=workspace_dir, max_epochs=TestConfig.MAX_EPOCHS, model=TestConfig.MODEL_SIZE)
-    print("Generating data from local central model...")
+    print("Generating data from dev central model...")
     generate(workspace_dir=workspace_dir, sample_size=TestConfig.TEST_SAMPLES)
     ws = Workspace(workspace_dir)
     return pd.concat([pd.read_parquet(f) for f in ws.generated_data.fetch_all()], ignore_index=True)
 
 
-def _generate_synthetic_local_federated(train_data, workspace_dir):
-    """Train federatedly with the local development engine and return a synthetic DataFrame."""
+def _generate_synthetic_dev_federated(train_data, workspace_dir):
+    """Train federatedly with the dev engine and return a synthetic DataFrame."""
     setup_workspace(train_data, workspace_dir)
-    print("Training local federated model (1 epoch per iteration)...")
+    print("Training dev federated model (1 epoch per iteration)...")
     federated_state = None
     for iteration in range(1, TestConfig.MAX_EPOCHS + 1):
         federated_state = train(
@@ -170,7 +170,7 @@ def _generate_synthetic_local_federated(train_data, workspace_dir):
             federated_state=federated_state,
         )
         print(f"  Completed federated iteration {iteration}/{TestConfig.MAX_EPOCHS}")
-    print("Generating data from local federated model...")
+    print("Generating data from dev federated model...")
     generate(workspace_dir=workspace_dir, sample_size=TestConfig.TEST_SAMPLES)
     ws = Workspace(workspace_dir)
     return pd.concat([pd.read_parquet(f) for f in ws.generated_data.fetch_all()], ignore_index=True)
@@ -207,7 +207,7 @@ def setup_workspace_pypi(data, workspace_dir):
     encode_pypi(workspace_dir=workspace_dir)
 
 
-def _compare_synthetic_datasets(syn_a, syn_b, a_label="Local Central", other_label="other"):
+def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label="other"):
     """Compare two synthetic DataFrames statistically and return whether they are similar.
 
     Performs column checks, numeric/categorical statistical comparisons, and (if available)
@@ -393,14 +393,14 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Local Central", other_lab
     return all_similar
 
 
-def test_data_generation_quality_local_central_vs_local_federated():
-    """Compare data generation quality: local library (central) vs local library (federated).
+def test_data_generation_quality_dev_central_vs_dev_federated():
+    """Compare data generation quality: dev library (central) vs dev library (federated).
 
-    Trains both approaches with the local development engine and compares the statistical
+    Trains both approaches with the dev engine and compares the statistical
     properties of the generated synthetic data to verify they converge to similar distributions.
     """
     print("\n" + "=" * 80)
-    print("DATA GENERATION QUALITY: LOCAL CENTRAL vs LOCAL FEDERATED")
+    print("DATA GENERATION QUALITY: DEV CENTRAL vs DEV FEDERATED")
     print("=" * 80)
     print(f"Configuration: {TestConfig.MAX_EPOCHS} epochs, {TestConfig.MODEL_SIZE} model")
 
@@ -410,41 +410,41 @@ def test_data_generation_quality_local_central_vs_local_federated():
         train_data = data.copy()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            local_central_ws = Path(tmpdir) / "local-central-ws"
-            local_central_ws.mkdir(parents=True)
-            local_central_synthetic = _generate_synthetic_local_central(train_data, local_central_ws)
+            dev_central_ws = Path(tmpdir) / "dev-central-ws"
+            dev_central_ws.mkdir(parents=True)
+            dev_central_synthetic = _generate_synthetic_dev_central(train_data, dev_central_ws)
 
-            local_federated_ws = Path(tmpdir) / "local-federated-ws"
-            local_federated_ws.mkdir(parents=True)
-            local_federated_synthetic = _generate_synthetic_local_federated(train_data, local_federated_ws)
+            dev_federated_ws = Path(tmpdir) / "dev-federated-ws"
+            dev_federated_ws.mkdir(parents=True)
+            dev_federated_synthetic = _generate_synthetic_dev_federated(train_data, dev_federated_ws)
 
             print("\n" + "=" * 80)
-            print("COMPARISON: LOCAL CENTRAL vs LOCAL FEDERATED")
+            print("COMPARISON: DEV CENTRAL vs DEV FEDERATED")
             print("=" * 80)
-            print(f"Local central synthetic data:   {len(local_central_synthetic)} samples")
-            print(f"Local federated synthetic data: {len(local_federated_synthetic)} samples")
+            print(f"Dev central synthetic data:   {len(dev_central_synthetic)} samples")
+            print(f"Dev federated synthetic data: {len(dev_federated_synthetic)} samples")
 
             result = _compare_synthetic_datasets(
-                local_central_synthetic, local_federated_synthetic, other_label="local federated"
+                dev_central_synthetic, dev_federated_synthetic, other_label="Dev Federated"
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
-            assert result, "Local central and local federated synthetic data are not statistically similar"
+            assert result, "Dev central and dev federated synthetic data are not statistically similar"
             return
 
     except Exception as e:
-        print(f"Error during local central vs local federated test: {e}")
+        print(f"Error during dev central vs dev federated test: {e}")
         raise
 
 
-def test_data_generation_quality_local_central_vs_pypi_central():
-    """Compare data generation quality: local library (central) vs PyPI library (central).
+def test_data_generation_quality_dev_central_vs_pypi_central():
+    """Compare data generation quality: dev library (central) vs PyPI library (central).
 
-    Trains a centralised model with both the local development version and the published
+    Trains a centralised model with both the dev version and the published
     PyPI version of mostlyai.engine, then compares the statistical properties of the
     generated synthetic data to verify they are equivalent.
     """
     print("\n" + "=" * 80)
-    print("DATA GENERATION QUALITY: LOCAL CENTRAL vs PyPI CENTRAL")
+    print("DATA GENERATION QUALITY: DEV CENTRAL vs PyPI CENTRAL")
     print("=" * 80)
     print(f"Configuration: {TestConfig.MAX_EPOCHS} epochs, {TestConfig.MODEL_SIZE} model")
 
@@ -458,41 +458,41 @@ def test_data_generation_quality_local_central_vs_pypi_central():
         train_data = data.copy()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            local_central_ws = Path(tmpdir) / "local-central-ws"
-            local_central_ws.mkdir(parents=True)
-            local_central_synthetic = _generate_synthetic_local_central(train_data, local_central_ws)
+            dev_central_ws = Path(tmpdir) / "dev-central-ws"
+            dev_central_ws.mkdir(parents=True)
+            dev_central_synthetic = _generate_synthetic_dev_central(train_data, dev_central_ws)
 
             pypi_central_ws = Path(tmpdir) / "pypi-central-ws"
             pypi_central_ws.mkdir(parents=True)
             pypi_central_synthetic = _generate_synthetic_pypi_central(train_data, pypi_central_ws)
 
             print("\n" + "=" * 80)
-            print("COMPARISON: LOCAL CENTRAL vs PyPI CENTRAL")
+            print("COMPARISON: DEV CENTRAL vs PyPI CENTRAL")
             print("=" * 80)
-            print(f"Local central synthetic data: {len(local_central_synthetic)} samples")
+            print(f"Dev central synthetic data: {len(dev_central_synthetic)} samples")
             print(f"PyPI central synthetic data:  {len(pypi_central_synthetic)} samples")
 
             result = _compare_synthetic_datasets(
-                local_central_synthetic, pypi_central_synthetic, other_label="PyPI central"
+                dev_central_synthetic, pypi_central_synthetic, other_label="PyPI Central"
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
-            assert result, "Local central and PyPI central synthetic data are not statistically similar"
+            assert result, "Dev central and PyPI central synthetic data are not statistically similar"
             return
 
     except Exception as e:
-        print(f"Error during local central vs PyPI central test: {e}")
+        print(f"Error during dev central vs PyPI central test: {e}")
         raise
 
 
-def test_data_generation_quality_local_federated_vs_pypi_central():
-    """Compare data generation quality: local library (federated) vs PyPI library (central).
+def test_data_generation_quality_dev_federated_vs_pypi_central():
+    """Compare data generation quality: dev library (federated) vs PyPI library (central).
 
-    Trains a federated model with the local development version and a centralised model
+    Trains a federated model with the dev version and a centralised model
     with the published PyPI version of mostlyai.engine, then compares the statistical
     properties of the generated synthetic data to verify they are equivalent.
     """
     print("\n" + "=" * 80)
-    print("DATA GENERATION QUALITY: LOCAL FEDERATED vs PyPI CENTRAL")
+    print("DATA GENERATION QUALITY: DEV FEDERATED vs PyPI CENTRAL")
     print("=" * 80)
     print(f"Configuration: {TestConfig.MAX_EPOCHS} epochs, {TestConfig.MODEL_SIZE} model")
 
@@ -506,30 +506,30 @@ def test_data_generation_quality_local_federated_vs_pypi_central():
         train_data = data.copy()
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            local_federated_ws = Path(tmpdir) / "local-federated-ws"
-            local_federated_ws.mkdir(parents=True)
-            local_federated_synthetic = _generate_synthetic_local_federated(train_data, local_federated_ws)
+            dev_federated_ws = Path(tmpdir) / "dev-federated-ws"
+            dev_federated_ws.mkdir(parents=True)
+            dev_federated_synthetic = _generate_synthetic_dev_federated(train_data, dev_federated_ws)
 
             pypi_central_ws = Path(tmpdir) / "pypi-central-ws"
             pypi_central_ws.mkdir(parents=True)
             pypi_central_synthetic = _generate_synthetic_pypi_central(train_data, pypi_central_ws)
 
             print("\n" + "=" * 80)
-            print("COMPARISON: LOCAL FEDERATED vs PyPI CENTRAL")
+            print("COMPARISON: DEV FEDERATED vs PyPI CENTRAL")
             print("=" * 80)
-            print(f"Local federated synthetic data: {len(local_federated_synthetic)} samples")
+            print(f"Dev federated synthetic data: {len(dev_federated_synthetic)} samples")
             print(f"PyPI central synthetic data:    {len(pypi_central_synthetic)} samples")
 
             result = _compare_synthetic_datasets(
-                local_federated_synthetic, pypi_central_synthetic,
-                a_label="Local Federated", other_label="PyPI Central",
+                dev_federated_synthetic, pypi_central_synthetic,
+                a_label="Dev Federated", other_label="PyPI Central",
             )
             print(f"\nOverall result: {'✓ PASSED' if result else '❌ FAILED'}")
-            assert result, "Local federated and PyPI central synthetic data are not statistically similar"
+            assert result, "Dev federated and PyPI central synthetic data are not statistically similar"
             return
 
     except Exception as e:
-        print(f"Error during local federated vs PyPI central test: {e}")
+        print(f"Error during dev federated vs PyPI central test: {e}")
         raise
 
 
@@ -578,7 +578,7 @@ def test_data_generation_quality_pypi_central_vs_pypi_central():
             return
 
     except Exception as e:
-        print(f"Error during local federated vs PyPI central test: {e}")
+        print(f"Error during PyPI central self-comparison test: {e}")
         raise
 
 
@@ -600,27 +600,27 @@ def main():
 
     results = []
 
-    # Test 1: Local central vs local federated
+    # Test 1: Dev central vs dev federated
     results.append(
         _run_test(
-            "Data Generation Quality (local central vs local federated)",
-            test_data_generation_quality_local_central_vs_local_federated,
+            "Data Generation Quality (dev central vs dev federated)",
+            test_data_generation_quality_dev_central_vs_dev_federated,
         )
     )
 
-    # Test 2: Local central vs PyPI central
+    # Test 2: Dev central vs PyPI central
     results.append(
         _run_test(
-            "Data Generation Quality (local central vs PyPI central)",
-            test_data_generation_quality_local_central_vs_pypi_central,
+            "Data Generation Quality (dev central vs PyPI central)",
+            test_data_generation_quality_dev_central_vs_pypi_central,
         )
     )
 
-    # Test 3: Local federated vs PyPI central
+    # Test 3: Dev federated vs PyPI central
     results.append(
         _run_test(
-            "Data Generation Quality (local federated vs PyPI central)",
-            test_data_generation_quality_local_federated_vs_pypi_central,
+            "Data Generation Quality (dev federated vs PyPI central)",
+            test_data_generation_quality_dev_federated_vs_pypi_central,
         )
     )
 
