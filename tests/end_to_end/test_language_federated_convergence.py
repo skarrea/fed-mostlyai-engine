@@ -77,7 +77,7 @@ except ImportError:
 
 # Optional import for quality assessment
 try:
-    from mostlyai import qa
+    from mostlyai import qa  # noqa: F401
 
     HAS_QA_LIBRARY = True
 except ImportError:
