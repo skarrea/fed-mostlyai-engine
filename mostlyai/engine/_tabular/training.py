@@ -275,11 +275,13 @@ class TabularModelCheckpoint(ModelCheckpoint):
 
 
 def _calculate_sample_losses(
-    model: FlatModel | SequentialModel | GradSampleModule, data: dict[str, torch.Tensor]
+    model: FlatModel | SequentialModel | GradSampleModule,
+    data: dict[str, torch.Tensor],
+    column_order: list[str] | None = None,
 ) -> torch.Tensor:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning, message="Using a non-full backward hook*")
-        output, _ = model(data, mode="trn")
+        output, _ = model(data, mode="trn", column_order=column_order)
     criterion = nn.CrossEntropyLoss(reduction="none")
 
     tgt_cols = (
@@ -334,10 +336,15 @@ def _calculate_val_loss(
     model: FlatModel | SequentialModel,
     val_dataloader: DataLoader,
 ) -> float:
+    # Use the model's canonical column order to ensure deterministic val_loss computation.
+    # Without a fixed order, _make_permutation_mask draws torch.randperm() on every forward
+    # pass (flexible-generation training mode), making the loss non-reproducible.
+    actual_model = model._module if isinstance(model, GradSampleModule) else model
+    canonical_column_order = actual_model.tgt_columns
     val_sample_losses: list[torch.Tensor] = []
     model.eval()
     for step_data in val_dataloader:
-        step_losses = _calculate_sample_losses(model, step_data)
+        step_losses = _calculate_sample_losses(model, step_data, column_order=canonical_column_order)
         val_sample_losses.extend(step_losses.detach())
     model.train()
     val_sample_losses: torch.Tensor = torch.stack(val_sample_losses, dim=0)
