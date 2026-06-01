@@ -210,7 +210,7 @@ def train_federated_model(
         # Prepare the federated state for the next iteration
         # The result is a comprehensive federated state object that contains everything needed for continuation
         if result is not None and iteration < total_epochs:
-            print(f"    Preparing federated state for next iteration...")
+            print("    Preparing federated state for next iteration...")
             # The result is already a complete federated state object, so we can use it directly
             federated_state = result
             print(f"    Federated state contains: {list(result.keys())}")
@@ -222,7 +222,7 @@ def train_federated_model(
             if missing_keys:
                 print(f"    ⚠️  Warning: Missing expected keys in federated state: {missing_keys}")
             else:
-                print(f"    ✓ Federated state has all expected components")
+                print("    ✓ Federated state has all expected components")
 
     print(f"\nFederated training completed in {total_training_time:.2f} seconds")
 
@@ -296,7 +296,7 @@ def analyse_weights(weights, epoch, detailed=False):
             plt.tight_layout()
             plt.savefig(f"language_weight_distribution_epoch_{epoch}.png")
             plt.close()
-            print(f"      Saved weight distribution plot")
+            print("      Saved weight distribution plot")
         except Exception as e:
             print(f"      Warning: Could not create plot: {e}")
 
@@ -367,7 +367,7 @@ def train_epoch_by_epoch(
         # Prepare the federated state for the next iteration
         if result is not None and iteration < max_epochs:
             federated_state = result
-            print(f"    Preparing federated state for next iteration...")
+            print("    Preparing federated state for next iteration...")
 
         if result:
             analyse_weights(result, iteration)
@@ -393,7 +393,7 @@ def test_epoch_by_epoch_comparison():
             print(f"\nSetting up federated epoch-by-epoch workspace: {federated_workspace}")
             setup_workspace(data, federated_workspace)
 
-            print(f"\nFederated epoch-by-epoch training:")
+            print("\nFederated epoch-by-epoch training:")
             federated_weights_history, federated_loss_history, federated_times = train_epoch_by_epoch(
                 federated_workspace
             )
@@ -405,7 +405,7 @@ def test_epoch_by_epoch_comparison():
             print(f"\nSetting up normal training workspace: {normal_workspace}")
             setup_workspace(data, normal_workspace)
 
-            print(f"\nNormal training for comparison:")
+            print("\nNormal training for comparison:")
             normal_result, normal_val_loss, normal_time = train_normal_model(normal_workspace)
 
             # Analysis and comparison
@@ -422,7 +422,7 @@ def test_epoch_by_epoch_comparison():
                 print(f"    Training time: {train_time:.2f}s")
                 print(f"    Weights available: {weights is not None}")
 
-            print(f"\nNormal training final result:")
+            print("\nNormal training final result:")
             print(f"  Final loss: {normal_val_loss}")
             print(f"  Training time: {normal_time:.2f}s")
 
@@ -432,7 +432,7 @@ def test_epoch_by_epoch_comparison():
                 loss_diff = abs(final_federated_loss - normal_val_loss)
                 loss_ratio = loss_diff / max(final_federated_loss, normal_val_loss, 1e-6)
 
-                print(f"\nFinal comparison:")
+                print("\nFinal comparison:")
                 print(f"  Federated final loss: {final_federated_loss}")
                 print(f"  Normal final loss: {normal_val_loss}")
                 print(f"  Absolute difference: {loss_diff:.6f}")
@@ -564,12 +564,12 @@ def test_training_approach_comparison():
             print("COMPARISON RESULTS")
             print("=" * 80)
 
-            print(f"Normal training:")
+            print("Normal training:")
             print(f"  - Result: {normal_result}")
             print(f"  - Final validation loss: {normal_val_loss}")
             print(f"  - Training time: {normal_time:.2f} seconds")
 
-            print(f"\nFederated training:")
+            print("\nFederated training:")
             print(f"  - Federated weights returned: {federated_weights is not None}")
             print(f"  - Intermediate validation loss: {intermediate_val_loss}")
             print(f"  - Final validation loss: {federated_val_loss}")
@@ -580,7 +580,7 @@ def test_training_approach_comparison():
                 loss_diff = abs(normal_val_loss - federated_val_loss)
                 loss_ratio = loss_diff / max(normal_val_loss, federated_val_loss, 1e-6)
 
-                print(f"\nValidation loss comparison:")
+                print("\nValidation loss comparison:")
                 print(f"  - Absolute difference: {loss_diff:.6f}")
                 print(f"  - Relative difference: {loss_ratio:.2%}")
 
@@ -738,7 +738,7 @@ def test_data_generation_quality():
             normal_columns = set(normal_synthetic.columns)
             federated_columns = set(federated_synthetic.columns)
 
-            print(f"\nColumn analysis:")
+            print("\nColumn analysis:")
             print(f"  Normal synthetic columns: {sorted(normal_columns)}")
             print(f"  Federated synthetic columns: {sorted(federated_columns)}")
 
@@ -757,7 +757,7 @@ def test_data_generation_quality():
             all_similar = True
 
             # Categorical column comparison (gender)
-            print(f"\nCategorical comparison:")
+            print("\nCategorical comparison:")
             for col in ["gender"]:
                 if col in normal_synthetic.columns:
                     try:
@@ -786,7 +786,7 @@ def test_data_generation_quality():
                         all_similar = False
 
             # Text column comparison (bio) - compare non-null ratios and basic stats
-            print(f"\nText column comparison:")
+            print("\nText column comparison:")
             for col in ["bio"]:
                 if col in normal_synthetic.columns:
                     try:
@@ -818,7 +818,7 @@ def test_data_generation_quality():
                         print(f"    Could not compare {col}: {e}")
                         all_similar = False
 
-            print(f"\nOverall quality assessment:")
+            print("\nOverall quality assessment:")
             print(f"  Overall similarity: {'✓ YES' if all_similar else '❌ NO'}")
             assert all_similar, "Language model normal and federated synthetic data are not statistically similar"
             return

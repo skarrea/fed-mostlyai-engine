@@ -27,7 +27,6 @@ from mostlyai.engine.domain import ModelEncodingType
 
 from .conftest import MockData
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------

@@ -38,9 +38,9 @@ project_root = Path(__file__).parent.parent.parent
 # Import PyPI version first (before adding local path to sys.path)
 try:
     import mostlyai.engine as _mostlyai_engine_pypi
-    from mostlyai.engine import split as split_pypi
     from mostlyai.engine import analyze as analyze_pypi
     from mostlyai.engine import encode as encode_pypi
+    from mostlyai.engine import split as split_pypi
     from mostlyai.engine import train as train_pypi
     from mostlyai.engine._workspace import Workspace as Workspace_pypi
     from mostlyai.engine.domain import ModelEncodingType as ModelEncodingType_pypi
@@ -303,7 +303,7 @@ def train_federated_model(
         # Prepare the federated state for the next iteration
         # The result is a comprehensive federated state object that contains everything needed for continuation
         if result is not None and iteration < total_epochs:
-            print(f"    Preparing federated state for next iteration...")
+            print("    Preparing federated state for next iteration...")
             # The result is already a complete federated state object, so we can use it directly
             federated_state = result
             print(f"    Federated state contains: {list(result.keys())}")
@@ -315,7 +315,7 @@ def train_federated_model(
             if missing_keys:
                 print(f"    ⚠️  Warning: Missing expected keys in federated state: {missing_keys}")
             else:
-                print(f"    ✓ Federated state has all expected components")
+                print("    ✓ Federated state has all expected components")
 
     print(f"\nFederated training completed in {total_training_time:.2f} seconds")
 
@@ -454,7 +454,7 @@ def train_epoch_by_epoch(
         # Prepare the federated state for the next iteration
         if result is not None and iteration < max_epochs:
             federated_state = result
-            print(f"    Preparing federated state for next iteration...")
+            print("    Preparing federated state for next iteration...")
 
     curve_df = pd.DataFrame(curve_rows) if curve_rows else None
     return weights_history, loss_history, training_times, curve_df
@@ -478,7 +478,7 @@ def test_epoch_by_epoch_comparison():
             print(f"\nSetting up federated epoch-by-epoch workspace: {federated_workspace}")
             setup_workspace(data, federated_workspace)
 
-            print(f"\nFederated epoch-by-epoch training:")
+            print("\nFederated epoch-by-epoch training:")
             federated_weights_history, federated_loss_history, federated_times, fed_curve_df = train_epoch_by_epoch(
                 federated_workspace
             )
@@ -490,7 +490,7 @@ def test_epoch_by_epoch_comparison():
             print(f"\nSetting up normal training workspace: {normal_workspace}")
             setup_workspace(data, normal_workspace)
 
-            print(f"\nNormal training for comparison:")
+            print("\nNormal training for comparison:")
             normal_result, normal_val_loss, normal_time, normal_curve_df = train_normal_model(normal_workspace)
 
             # Analysis and comparison
@@ -507,7 +507,7 @@ def test_epoch_by_epoch_comparison():
                 print(f"    Training time: {train_time:.2f}s")
                 print(f"    Weights available: {weights is not None}")
 
-            print(f"\nNormal training final result:")
+            print("\nNormal training final result:")
             print(f"  Final loss: {normal_val_loss}")
             print(f"  Training time: {normal_time:.2f}s")
 
@@ -517,7 +517,7 @@ def test_epoch_by_epoch_comparison():
                 loss_diff = abs(final_federated_loss - normal_val_loss)
                 loss_ratio = loss_diff / max(final_federated_loss, normal_val_loss, 1e-6)
 
-                print(f"\nFinal comparison:")
+                print("\nFinal comparison:")
                 print(f"  Federated final loss: {final_federated_loss}")
                 print(f"  Normal final loss: {normal_val_loss}")
                 print(f"  Absolute difference: {loss_diff:.6f}")
@@ -692,19 +692,19 @@ def test_training_approach_comparison():
             print("COMPARISON RESULTS")
             print("=" * 80)
 
-            print(f"Normal training (local dev):")
+            print("Normal training (local dev):")
             print(f"  - Result: {normal_result}")
             print(f"  - Final validation loss: {normal_val_loss}")
             print(f"  - Training time: {normal_time:.2f} seconds")
 
-            print(f"\nFederated training (local dev):")
+            print("\nFederated training (local dev):")
             print(f"  - Federated weights returned: {federated_weights is not None}")
             print(f"  - Intermediate validation loss: {intermediate_val_loss}")
             print(f"  - Final validation loss: {federated_val_loss}")
             print(f"  - Total training time: {federated_time:.2f} seconds")
 
             if HAS_PYPI_ENGINE:
-                print(f"\nNormal training (PyPI baseline):")
+                print("\nNormal training (PyPI baseline):")
                 print(f"  - Final validation loss: {pypi_val_loss}")
                 print(f"  - Training time: {pypi_time:.2f} seconds")
 
@@ -713,7 +713,7 @@ def test_training_approach_comparison():
                 loss_diff = abs(normal_val_loss - federated_val_loss)
                 loss_ratio = loss_diff / max(normal_val_loss, federated_val_loss, 1e-6)
 
-                print(f"\nValidation loss comparison (local dev normal vs federated):")
+                print("\nValidation loss comparison (local dev normal vs federated):")
                 print(f"  - Absolute difference: {loss_diff:.6f}")
                 print(f"  - Relative difference: {loss_ratio:.2%}")
 
@@ -723,7 +723,7 @@ def test_training_approach_comparison():
                 if pypi_val_loss is not None:
                     pypi_diff = abs(normal_val_loss - pypi_val_loss)
                     pypi_ratio = pypi_diff / max(normal_val_loss, pypi_val_loss, 1e-6)
-                    print(f"\nValidation loss comparison (local dev normal vs PyPI baseline):")
+                    print("\nValidation loss comparison (local dev normal vs PyPI baseline):")
                     print(f"  - Absolute difference: {pypi_diff:.6f}")
                     print(f"  - Relative difference: {pypi_ratio:.2%}")
 

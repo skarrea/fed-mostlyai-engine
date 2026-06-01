@@ -79,8 +79,8 @@ class MockData:
 
 def pytest_sessionstart(session):
     """Write a top-level heading to $GITHUB_STEP_SUMMARY when the test session starts."""
-    import os
     import datetime
+    import os
 
     step_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if not step_summary_path:

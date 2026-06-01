@@ -219,7 +219,7 @@ def write_github_step_summary(title: str, rows: list, output_dir=None) -> None:
     if step_summary_path:
         with open(step_summary_path, "a", encoding="utf-8") as fh:
             fh.write(markdown)
-        print(f"  → appended to $GITHUB_STEP_SUMMARY")
+        print("  → appended to $GITHUB_STEP_SUMMARY")
 
     # Write to an artifact file for download / archival
     if output_dir:

@@ -19,14 +19,14 @@ These tests cover the API contract, error handling, and correct forwarding
 without requiring a full workspace or actual training.
 """
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
-from unittest.mock import patch
 
 import mostlyai.engine
 from mostlyai.engine import validate
 from mostlyai.engine.domain import ModelType
-
 
 # ---------------------------------------------------------------------------
 # Export / API surface

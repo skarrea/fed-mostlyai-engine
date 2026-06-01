@@ -28,7 +28,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -38,13 +37,13 @@ project_root = Path(__file__).parent.parent.parent
 # Import PyPI version first (before adding the dev path)
 try:
     import mostlyai.engine as _mostlyai_engine_pypi
-    from mostlyai.engine import split as split_pypi
     from mostlyai.engine import analyze as analyze_pypi
     from mostlyai.engine import encode as encode_pypi
-    from mostlyai.engine import train as train_pypi
     from mostlyai.engine import generate as generate_pypi
-    from mostlyai.engine.domain import ModelEncodingType as ModelEncodingType_pypi
+    from mostlyai.engine import split as split_pypi
+    from mostlyai.engine import train as train_pypi
     from mostlyai.engine._workspace import Workspace as Workspace_pypi
+    from mostlyai.engine.domain import ModelEncodingType as ModelEncodingType_pypi
 
     HAS_PYPI_ENGINE = True
     print(f"PyPI mostlyai.engine imported: {getattr(_mostlyai_engine_pypi, '__version__', 'unknown version')}")
@@ -233,7 +232,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
     cols_a = set(syn_a.columns)
     cols_b = set(syn_b.columns)
     columns_match = cols_a == cols_b
-    print(f"\nColumn analysis:")
+    print("\nColumn analysis:")
     print(f"  Columns A ({a_label}):  {sorted(cols_a)}")
     print(f"  Columns B ({other_label}): {sorted(cols_b)}")
     print(f"  Column match: {'✓ YES' if columns_match else '❌ NO'}")
@@ -244,7 +243,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
 
     all_similar = True
     summary_rows = []  # Collected for GitHub step summary
-    print(f"\nStatistical comparison (numeric):")
+    print("\nStatistical comparison (numeric):")
     for col in [
         "bundesland_id",
         "anzahl_meldebereiche",
@@ -294,7 +293,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
                 all_similar = False
 
     # Categorical columns
-    print(f"\nStatistical comparison (categorical):")
+    print("\nStatistical comparison (categorical):")
     for col in ["bundesland_name", "versorgungsstufe"]:
         if col in syn_a.columns:
             try:
@@ -320,7 +319,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
 
     # Advanced QA assessment
     if HAS_QA_LIBRARY:
-        print(f"\nAdvanced quality assessment (using mostlyai-qa):")
+        print("\nAdvanced quality assessment (using mostlyai-qa):")
         try:
             import os
 
@@ -426,7 +425,7 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
                             )
                             return all_similar and overall_similar
                         else:
-                            print(f"  No QA metrics found, falling back to basic assessment.")
+                            print("  No QA metrics found, falling back to basic assessment.")
                             reporting.write_github_step_summary(
                                 comparison_title,
                                 summary_rows,
@@ -437,12 +436,12 @@ def _compare_synthetic_datasets(syn_a, syn_b, a_label="Dev Central", other_label
                         print(f"  Could not extract QA metrics: {e}")
         except Exception as e:
             print(f"  Warning: Could not run QA assessment: {e}")
-            print(f"  Note: The synthetic data is non-deterministic — the mostlyai-qa library may hit edge cases")
-            print(f"  (e.g. duplicate labels after category trimming). Re-running may resolve it.")
+            print("  Note: The synthetic data is non-deterministic — the mostlyai-qa library may hit edge cases")
+            print("  (e.g. duplicate labels after category trimming). Re-running may resolve it.")
     else:
-        print(f"\nBasic assessment only (mostlyai-qa not available).")
+        print("\nBasic assessment only (mostlyai-qa not available).")
         print(f"  Overall similarity: {'✓ YES' if all_similar else '❌ NO'}")
-        print(f"  Note: Install mostlyai-qa for comprehensive quality assessment")
+        print("  Note: Install mostlyai-qa for comprehensive quality assessment")
 
     reporting.write_github_step_summary(
         comparison_title,
