@@ -41,6 +41,7 @@ def train(
     upload_model_data_callback: Callable | None = None,
     federated_epochs: int | None = None,
     federated_state: dict | None = None,
+    fixed_learning_rate: float | None = None,
 ) -> dict | None:
     """
     Trains a model with optional early stopping and differential privacy.
@@ -67,7 +68,8 @@ def train(
         update_progress: Callback function to report training progress.
         upload_model_data_callback: Callback function to upload model data during training.
         federated_epochs: If specified, train for exactly this number of epochs and return model weights. Overrides max_epochs.
-        federated_state: Optional federated state dictionary containing model weights, optimizer state, LR scheduler state, and DP accountant state for continuing federated training.
+        federated_state: Optional federated state dictionary containing model weights, optimizer state, and DP accountant state for continuing federated training.
+        fixed_learning_rate: Fixed learning rate for training. If specified, overrides learning rate schedule.
 
     Returns:
         dict | None: Comprehensive federated state dictionary if federated_epochs is specified, otherwise None.
@@ -93,6 +95,7 @@ def train(
             max_sequence_window=max_sequence_window if max_sequence_window else args["max_sequence_window"].default,
             federated_epochs=federated_epochs,
             federated_state=federated_state,
+            fixed_learning_rate=fixed_learning_rate,
         )
         return result
     else:
