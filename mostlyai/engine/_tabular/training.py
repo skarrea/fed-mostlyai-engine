@@ -489,7 +489,7 @@ class Trainer:
           5. _build_model
           6. _restore_state_from_disk_or_federated
           7. _build_dataloaders
-          8. (training only) _build_optimizer -> _setup_differential_privacy -> _apply_fixed_learning_rate
+          8. (training only) _build_optimizer -> _setup_differential_privacy
         """
         if self._is_setup:
             return
@@ -550,16 +550,12 @@ class Trainer:
         # 8. dataloaders
         self._build_dataloaders(for_validation_only=for_validation_only)
 
-        # 9. optimizer / DP / fixed LR (training only).
-        # Order matters: _build_optimizer must run before _setup_differential_privacy
-        # (Opacus wraps the optimizer), and _apply_fixed_learning_rate must run last so
-        # the pinned LR survives DP wrapping.
+        # 9. optimizer / DP (training only).
+        # Order matters: _build_optimizer must run before _setup_differential_privacy (Opacus wraps the optimizer).
         if not for_validation_only:
             self._build_optimizer()
             if self.with_dp:
                 self._setup_differential_privacy()
-            if self.fixed_learning_rate is not None:
-                self._apply_fixed_learning_rate()
 
         self._is_setup = True
 
@@ -694,7 +690,8 @@ class Trainer:
         self.val_batch_size = max(1, min(self.batch_size, self.val_cnt))
         self.val_steps = max(1, self.val_cnt // self.val_batch_size)
         if self.initial_lr is None:
-            self.initial_lr = _learn_rate_heuristic(self.trn_batch_size)
+            self.initial_lr = _learn_rate_heuristic(self.trn_batch_size) if (self.fixed_learning_rate
+                                                                             is None) else self.fixed_learning_rate
         # halve val_batch_size last (after val_steps is computed) for sequential models;
         # this matches pre-refactor order.
         if self.is_sequential:
@@ -792,13 +789,18 @@ class Trainer:
         # Trainer.train() when applicable. initial_lr stays at the heuristic value unless
         # explicitly overridden by a resumed progress message there.
         self.early_stopper = EarlyStopper(val_loss_patience=4)
-        self.optimizer = torch.optim.AdamW(params=self.model.parameters(), lr=self.initial_lr)
-        self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer=self.optimizer,
-            factor=0.5,
-            patience=2,
-            min_lr=0.1 * self.initial_lr,
-        )
+        self.optimizer = torch.optim.AdamW(params=self.model.parameters(),
+                                           lr=self.initial_lr if self.fixed_learning_rate is None else self.fixed_learning_rate)
+        if self.fixed_learning_rate:
+            self.lr_scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer=self.optimizer,
+                                                                    factor=1.0)
+        else:
+            self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer=self.optimizer,
+                factor=0.5,
+                patience=2,
+                min_lr=0.1 * self.initial_lr,
+            )
         # restore optimizer / lr_scheduler from disk only when resuming centrally
         if (
             self.federated_state is None
@@ -812,7 +814,7 @@ class Trainer:
             self.lr_scheduler.load_state_dict(
                 torch.load(self.workspace.model_lr_scheduler_path, map_location=self.device, weights_only=True)
             )
-        self.current_lr = self.initial_lr
+        self.current_lr = self.optimizer.param_groups[0]["lr"]
 
     def _setup_differential_privacy(self) -> None:
         if isinstance(self.differential_privacy, DifferentialPrivacyConfig):
@@ -868,12 +870,6 @@ class Trainer:
             data_loader=self.trn_dataloader, max_batch_size=self.batch_size, optimizer=self.optimizer
         )
 
-    def _apply_fixed_learning_rate(self) -> None:
-        for pg in self.optimizer.param_groups:
-            pg["lr"] = self.fixed_learning_rate
-        self.current_lr = self.fixed_learning_rate
-        _LOG.info(f"fixed_learning_rate={self.fixed_learning_rate}: local LR scheduler will be skipped this round")
-
     # ------------------------------------------------------------------
     # Training loop
     # ------------------------------------------------------------------
@@ -925,7 +921,7 @@ class Trainer:
                 trn_sample_losses.extend(step_losses)
 
             if skip_scheduler:
-                # LR is pinned by _apply_fixed_learning_rate(); local scheduler never steps.
+                # LR is pinned; local scheduler never steps.
                 pass
             else:
                 self.current_lr = self.optimizer.param_groups[0]["lr"]
@@ -1082,7 +1078,7 @@ class Trainer:
             final_trn_loss = None
             epoch = 0.0
             steps = 0
-            samples = 0
+            samples = self.samples
             learn_rate = None
         else:
             final_trn_loss = getattr(self, "_final_trn_loss", None)
@@ -1226,8 +1222,9 @@ def train(
     weights (unchanged modulo CPU-numpy serialization) and whose
     ``training_metrics.val_loss`` reflects the local validation loss.
 
-    With ``fixed_learning_rate`` set, the local ``ReduceLROnPlateau`` scheduler
-    is bypassed for this round; the coordinator decides the next LR globally.
+    With ``fixed_learning_rate`` set, the optimizer is initialised with that rate and a
+    ``ConstantLR`` scheduler is used, so the LR remains fixed for the entire round;
+    the coordinator decides the next LR globally.
     """
     trainer = Trainer(
         model=model,
