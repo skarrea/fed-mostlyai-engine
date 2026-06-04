@@ -347,7 +347,7 @@ def _calculate_val_loss(
     model.train()
     val_sample_losses: torch.Tensor = torch.stack(val_sample_losses, dim=0)
     val_loss_avg = torch.mean(val_sample_losses).item()
-    return val_loss_avg
+    return val_loss_avg, len(val_sample_losses)
 
 
 def _calculate_average_trn_loss(trn_sample_losses: list[torch.Tensor], n: int | None = None) -> float | None:
@@ -873,7 +873,7 @@ class Trainer:
     # ------------------------------------------------------------------
     # Training loop
     # ------------------------------------------------------------------
-    def _calculate_val_loss_internal(self) -> float:
+    def _calculate_val_loss_internal(self) -> tuple[float, int]:
         return _calculate_val_loss(model=self.model, val_dataloader=self.val_dataloader)
 
     def _run_training_loop(self, progress) -> None:
@@ -930,7 +930,7 @@ class Trainer:
 
             do_validation = on_epoch_end = self.epoch.is_integer()
             if do_validation:
-                self.val_loss = self._calculate_val_loss_internal()
+                self.val_loss, _ = self._calculate_val_loss_internal()
                 if pd.isna(self.val_loss):
                     _LOG.warning("validation loss NaN - reload last checkpoint")
                     load_model_weights(
@@ -1048,7 +1048,7 @@ class Trainer:
             self.val_loss = None
         else:
             _LOG.info("calculate validation loss")
-            self.val_loss = self._calculate_val_loss_internal()
+            self.val_loss, _ = self._calculate_val_loss_internal()
         dp_total_epsilon = (
             self.privacy_engine.get_epsilon(self.dp_total_delta) + self.dp_value_protection_epsilon
             if self.with_dp
@@ -1161,7 +1161,7 @@ class Trainer:
                 return None
             assert self.model is not None, "model must be built for validate_only"
             assert self.val_dataloader is not None, "val_dataloader must be built for validate_only"
-            self.val_loss = self._calculate_val_loss_internal()
+            self.val_loss, self.samples = self._calculate_val_loss_internal()
         _LOG.info(f"VALIDATE_ONLY_TABULAR finished in {time.time() - t0:.2f}s, val_loss={self.val_loss}")
         # Note: model_weights returned here are the coordinator-supplied weights,
         # unchanged modulo the CPU-numpy serialization round-trip.
