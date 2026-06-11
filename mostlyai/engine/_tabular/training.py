@@ -400,6 +400,7 @@ class Trainer:
         federated_epochs: int | None = None,
         federated_state: dict | None = None,
         validate_only: bool = False,
+        build_model_only: bool = False,
         fixed_learning_rate: float | None = None,
     ):
         # raw configuration
@@ -429,6 +430,7 @@ class Trainer:
         self.federated_epochs = federated_epochs
         self.federated_state = federated_state
         self.validate_only_flag = validate_only
+        self.build_model_only_flag = build_model_only
         self.fixed_learning_rate = fixed_learning_rate
 
         # placeholders (filled in _setup)
@@ -478,8 +480,8 @@ class Trainer:
     # ------------------------------------------------------------------
     # Setup
     # ------------------------------------------------------------------
-    def _setup(self, for_validation_only: bool = False) -> None:
-        """Build everything required for a single train/validate call.
+    def _setup(self, for_validation_only: bool = False, for_build_only: bool = False) -> None:
+        """Build everything required for a single train/validate/build call.
 
         Order is critical:
           1. process-level torch settings
@@ -490,6 +492,12 @@ class Trainer:
           6. _restore_state_from_disk_or_federated
           7. _build_dataloaders
           8. (training only) _build_optimizer -> _setup_differential_privacy
+
+        When ``for_build_only`` is True only steps 1-3 and 5 are executed: the
+        model architecture is constructed with data-independent (PyTorch-default)
+        weight initialization and setup stops immediately, skipping state
+        restoration, dataloaders and optimizer/DP wiring. This is used to produce
+        identically-shaped initial weights for federated nodes.
         """
         if self._is_setup:
             return
@@ -513,6 +521,16 @@ class Trainer:
 
         # 3. load stats + early-exit check
         self._load_stats()
+
+        # build-only short-circuit: construct the model architecture and stop.
+        # No training/validation data is required and weight initialization is
+        # purely PyTorch-default (data-independent), so all federated nodes that
+        # seed identically obtain identical initial weights.
+        if for_build_only:
+            self._build_model(for_validation_only=False)
+            self._is_setup = True
+            return
+
         if for_validation_only:
             val_files = self.workspace.encoded_data_val.fetch_all()
             self.early_exit = len(val_files) == 0 or self.val_cnt == 0
@@ -1167,6 +1185,31 @@ class Trainer:
         # unchanged modulo the CPU-numpy serialization round-trip.
         return self._build_federated_state_dict(validate_only_mode=True)
 
+    def build_model(self) -> dict:
+        """Build the model architecture only and return its initialized weights.
+
+        Runs ``_setup(for_build_only=True)`` which constructs the model with
+        PyTorch-default (data-independent) weight initialization and stops
+        immediately - no dataloaders, optimizer, DP wiring or state restoration.
+
+        Returns a dict with the same ``model_weights`` format as the federated
+        state produced by ``train()`` / ``validate_only()``, plus a ``model_configs``
+        entry describing the architecture so federated nodes can reconstruct it.
+        """
+        _LOG.info("BUILD_MODEL_TABULAR started")
+        t0 = time.time()
+        self._setup(for_build_only=True)
+        assert self.model is not None, "model must be built for build_model"
+        state = self._build_federated_state_dict(validate_only_mode=True)
+        module = self.model._module if isinstance(self.model, GradSampleModule) else self.model
+        state["model_configs"] = {
+            "model_id": self.model_id,
+            "model_units": get_model_units(module),
+            "enable_flexible_generation": self.enable_flexible_generation,
+        }
+        _LOG.info(f"BUILD_MODEL_TABULAR finished in {time.time() - t0:.2f}s")
+        return state
+
 
 @gpu_memory_cleanup
 def train(
@@ -1248,3 +1291,39 @@ def train(
     if validate_only:
         return trainer.validate_only()
     return trainer.train()
+
+
+@gpu_memory_cleanup
+def build_model(
+    *,
+    model: str = "MOSTLY_AI/Medium",
+    workspace_dir: str | Path = "engine-ws",
+    device: torch.device | str | None = None,
+    differential_privacy: DifferentialPrivacyConfig | dict | None = None,
+    enable_flexible_generation: bool = True,
+    max_sequence_window: int = 100,
+) -> dict:
+    """Build a tabular ARGN model architecture and return its initialized weights.
+
+    No training, validation, dataloaders, optimizer or DP wiring are created. The
+    model is constructed with PyTorch-default (data-independent) weight
+    initialization, so that all federated nodes seeding identically obtain
+    identical initial weights of the same shape.
+
+    Only ``tgt_stats`` and ``ctx_stats`` need to be present in ``workspace_dir``;
+    no training/validation data is required.
+
+    Returns:
+        dict: Contains ``model_weights`` (state dict, same format as the federated
+            state produced by ``train()``), ``training_metrics`` and ``model_configs``.
+    """
+    trainer = Trainer(
+        model=model,
+        workspace_dir=workspace_dir,
+        device=device,
+        differential_privacy=differential_privacy,
+        enable_flexible_generation=enable_flexible_generation,
+        max_sequence_window=max_sequence_window,
+        build_model_only=True,
+    )
+    return trainer.build_model()

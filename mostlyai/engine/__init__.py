@@ -21,7 +21,7 @@ from mostlyai.engine.generation import generate
 from mostlyai.engine.logging import init_logging
 from mostlyai.engine.random_state import set_random_state
 from mostlyai.engine.splitting import split
-from mostlyai.engine.training import train, validate
+from mostlyai.engine.training import build_model, train, validate
 
 __all__ = [
     "split",
@@ -31,6 +31,7 @@ __all__ = [
     "encode",
     "train",
     "validate",
+    "build_model",
     "generate",
     "init_logging",
     "set_random_state",

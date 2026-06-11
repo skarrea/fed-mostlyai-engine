@@ -191,3 +191,58 @@ def validate(
         )
     else:
         raise NotImplementedError("validate() is currently only supported for tabular workspaces")
+
+
+def build_model(
+    *,
+    model: str | None = None,
+    workspace_dir: str | Path = "engine-ws",
+    device: torch.device | str | None = None,
+    differential_privacy: DifferentialPrivacyConfig | dict | None = None,
+    enable_flexible_generation: bool = True,
+    max_sequence_window: int | None = None,
+) -> dict:
+    """Build a model architecture and return its initialized weights.
+
+    Constructs the model architecture only - no training, validation, dataloaders,
+    optimizer or DP wiring. Weights use PyTorch-default (data-independent)
+    initialization, so federated nodes that seed identically obtain identical
+    initial weights of the same shape. Seeding must be done externally by the caller
+    (e.g. via ``set_random_state``) before this call.
+
+    Only ``tgt_stats`` and ``ctx_stats`` need to be present in ``workspace_dir``;
+    no training/validation data is required.
+
+    Args:
+        model: Model identifier. Defaults to MOSTLY_AI/Medium for tabular.
+        workspace_dir: Path to workspace containing tgt_stats and ctx_stats.
+        device: Device for model initialization.
+        differential_privacy: DP config (affects model architecture).
+        enable_flexible_generation: Column order flexibility.
+        max_sequence_window: For sequential models.
+
+    Returns:
+        dict: Contains 'model_weights' (state dict, same format as the federated
+            state produced by ``train()``), 'training_metrics' and 'model_configs'.
+
+    Raises:
+        ValueError: If workspace lacks required stats files.
+        NotImplementedError: If the workspace contains a language model.
+    """
+    model_type = resolve_model_type(workspace_dir)
+    if model_type == ModelType.tabular:
+        from mostlyai.engine._tabular.training import build_model as build_model_tabular
+
+        args = inspect.signature(build_model_tabular).parameters
+        return build_model_tabular(
+            model=model if model is not None else args["model"].default,
+            workspace_dir=workspace_dir,
+            device=device,
+            differential_privacy=differential_privacy,
+            enable_flexible_generation=enable_flexible_generation,
+            max_sequence_window=max_sequence_window
+            if max_sequence_window is not None
+            else args["max_sequence_window"].default,
+        )
+    else:
+        raise NotImplementedError("build_model() is currently only supported for tabular workspaces")
