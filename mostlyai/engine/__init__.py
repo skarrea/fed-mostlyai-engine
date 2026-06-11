@@ -15,7 +15,7 @@ import warnings
 
 from mostlyai.engine._language.interface import LanguageModel
 from mostlyai.engine._tabular.interface import TabularARGN
-from mostlyai.engine.analysis import analyze
+from mostlyai.engine.analysis import analyze, analyze_partial, analyze_reduce
 from mostlyai.engine.encoding import encode
 from mostlyai.engine.generation import generate
 from mostlyai.engine.logging import init_logging
@@ -26,6 +26,8 @@ from mostlyai.engine.training import train, validate
 __all__ = [
     "split",
     "analyze",
+    "analyze_partial",
+    "analyze_reduce",
     "encode",
     "train",
     "validate",

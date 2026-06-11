@@ -126,6 +126,50 @@ def analyze(
 
     _LOG.info("ANALYZE started")
     t0 = time.time()
+    # delegate to the partition-analysis half and the reduce + cleanup half
+    analyze_partial(workspace_dir=workspace_dir, update_progress=update_progress)
+    analyze_reduce(
+        value_protection=value_protection,
+        differential_privacy=differential_privacy,
+        workspace_dir=workspace_dir,
+        update_progress=update_progress,
+    )
+    _LOG.info(f"ANALYZE finished in {time.time() - t0:.2f}s")
+
+
+def analyze_partial(
+    *,
+    workspace_dir: str | Path = "engine-ws",
+    update_progress: ProgressCallback | None = None,
+) -> dict[str, list[dict]]:
+    """
+    Computes partial (per-partition) column-level statistics of the original data, that has been `split`
+    into the workspace. This is the first, partition-analysis half of `analyze()`.
+
+    It writes the partial statistics into `ModelStore/tgt-stats/part.*.json` and (if context is present)
+    `ModelStore/ctx-stats/part.*.json`, exactly as `analyze()` does, but it does **not** reduce them and
+    does **not** delete the partial files. The reduce + value-protection step is performed separately by
+    `analyze_reduce()`.
+
+    This enables a federated analysis workflow: each node computes its partial statistics locally, hands the
+    returned dicts to an external coordinator that concatenates them (with no workspace and no dependency on
+    this library), and then applies value protection locally via `analyze_reduce()`.
+
+    Args:
+        workspace_dir: Path to workspace directory containing partitioned data.
+        update_progress: Optional callback to update progress during analysis.
+
+    Returns:
+        A dict `{"tgt": [...], "ctx": [...]}` holding the in-memory partial statistics dicts (the same content
+        written to the `part.*.json` files). The `"ctx"` list is empty when no context is present. These are
+        the raw partial dicts (with counts); stripping them down to a minimal, names-only representation for
+        transmission is the caller's / coordinator's responsibility.
+    """
+
+    _LOG.info("ANALYZE_PARTIAL started")
+    t0 = time.time()
+    tgt_partials: list[dict] = []
+    ctx_partials: list[dict] = []
     with ProgressCallbackWrapper(update_progress) as progress:
         # build paths based on workspace dir
         workspace_dir = ensure_workspace_dir(workspace_dir)
@@ -156,7 +200,7 @@ def analyze(
         ctx_encoding_types = workspace.ctx_encoding_types.read()
 
         for i in range(len(tgt_pqt_partitions)):
-            _analyze_partition(
+            tgt_stats, ctx_stats = _analyze_partition(
                 tgt_partition_file=tgt_pqt_partitions[i],
                 tgt_stats_path=workspace.tgt_stats_path,
                 tgt_encoding_types=tgt_encoding_types,
@@ -168,46 +212,12 @@ def analyze(
                 ctx_root_key=ctx_root_key,
                 n_jobs=min(16, max(1, cpu_count() - 1)),
             )
+            tgt_partials.append(tgt_stats)
+            if ctx_stats is not None:
+                ctx_partials.append(ctx_stats)
             progress.update(completed=i, total=len(tgt_pqt_partitions) + 1)
-
-        # combine partition statistics
-        _LOG.info("combine partition statistics")
-        # no need to split epsilon because training will have max_epsilon - value_protection_epsilon as the budget
-        value_protection_epsilon = (
-            differential_privacy.value_protection_epsilon if value_protection and differential_privacy else None
-        )
-        if has_context:
-            dp_tgt_ratio = float(len(tgt_encoding_types) + 1) / (len(tgt_encoding_types) + len(ctx_encoding_types) + 1)
-            dp_ctx_ratio = float(len(ctx_encoding_types)) / (len(tgt_encoding_types) + len(ctx_encoding_types) + 1)
-        _analyze_reduce(
-            all_stats=workspace.tgt_all_stats,
-            out_stats=workspace.tgt_stats,
-            keys=tgt_keys,
-            mode="tgt",
-            value_protection=value_protection,
-            # further split epsilon and delta if context is present
-            value_protection_epsilon=value_protection_epsilon * dp_tgt_ratio
-            if value_protection_epsilon is not None and has_context
-            else value_protection_epsilon,
-        )
-        if has_context:
-            _analyze_reduce(
-                all_stats=workspace.ctx_all_stats,
-                out_stats=workspace.ctx_stats,
-                keys=ctx_keys,
-                mode="ctx",
-                value_protection=value_protection,
-                value_protection_epsilon=value_protection_epsilon * dp_ctx_ratio
-                if value_protection_epsilon is not None and has_context
-                else value_protection_epsilon,
-            )
-
-        # clean up partition-wise stats files, as they contain non-protected values
-        for file in workspace.tgt_all_stats.fetch_all():
-            file.unlink()
-        for file in workspace.ctx_all_stats.fetch_all():
-            file.unlink()
-    _LOG.info(f"ANALYZE finished in {time.time() - t0:.2f}s")
+    _LOG.info(f"ANALYZE_PARTIAL finished in {time.time() - t0:.2f}s")
+    return {"tgt": tgt_partials, "ctx": ctx_partials}
 
 
 def _analyze_partition(
@@ -221,12 +231,16 @@ def _analyze_partition(
     ctx_primary_key: str | None = None,
     ctx_root_key: str | None = None,
     n_jobs: int = 1,
-) -> None:
+) -> tuple[dict, dict | None]:
     """
     Calculates partial statistics about a single partition.
 
     If context exist, target and context partitions are analyzed jointly,
     thus single run can produce one or two partial statistics files.
+
+    Returns the in-memory partial statistics dicts (the same content that is
+    written to the ``part.*.json`` files): the target stats dict and the
+    context stats dict (or ``None`` when no context is present).
     """
 
     has_context = ctx_partition_file is not None
@@ -284,6 +298,7 @@ def _analyze_partition(
     write_json(tgt_stats, tgt_stats_file)
     _LOG.info(f"analyzed target partition {partition_id} {tgt_df.shape}")
 
+    ctx_stats = None
     if has_context:
         assert isinstance(ctx_partition_file, Path) and ctx_partition_file.exists()
         ctx_df = pd.read_parquet(ctx_partition_file)
@@ -313,6 +328,16 @@ def _analyze_partition(
         write_json(ctx_stats, ctx_stats_file)
         _LOG.info(f"analyzed context partition {partition_id} {ctx_df.shape}")
 
+    return tgt_stats, ctx_stats
+
+
+# encoding types whose vocabulary can be aligned to a federation-wide set of value names
+_FEDERATED_ALLOWED_VALUES_ENCODING_TYPES = (
+    ModelEncodingType.tabular_categorical,
+    ModelEncodingType.tabular_numeric_discrete,
+    ModelEncodingType.language_categorical,
+)
+
 
 def _analyze_reduce(
     all_stats: PathDesc,
@@ -321,6 +346,7 @@ def _analyze_reduce(
     mode: Literal["tgt", "ctx"],
     value_protection: bool = True,
     value_protection_epsilon: float | None = None,
+    aggregated_stats: list[dict] | None = None,
 ) -> None:
     """
     Reduces partial statistics.
@@ -334,10 +360,26 @@ def _analyze_reduce(
     If target partial statistics are reduced, some additional stats are
     recorded such as training / validation records number, sequence lengths
     summary and others.
+
+    The counts that drive value protection are *always* taken from the local `part.*.json` files. When
+    `aggregated_stats` is provided (the federated path), it is used only to derive, per categorical-like
+    column, the federation-wide set of allowed value names; the local vocabulary is then aligned to it (names
+    absent locally are added with a zero count, locally-seen names absent from the aggregate are dropped).
+    `aggregated_stats` is never read as a source of counts.
     """
     stats_files = all_stats.fetch_all()
     stats_list = [read_json(file) for file in stats_files]
     stats: dict[str, Any] = {"columns": {}}
+
+    # derive per-column federation-wide allowed value names from the (minimal) aggregated stats, if provided
+    allowed_value_names: dict[str, list[str]] = {}
+    if aggregated_stats is not None:
+        col_names: dict[str, set[str]] = {}
+        for item in aggregated_stats:
+            for column, column_stats in item.get("columns", {}).items():
+                if column_stats.get("encoding_type") in _FEDERATED_ALLOWED_VALUES_ENCODING_TYPES:
+                    col_names.setdefault(column, set()).update(column_stats.get("cnt_values", {}).keys())
+        allowed_value_names = {column: sorted(names) for column, names in col_names.items()}
 
     # check how many context tables have sequential context
     if mode == "ctx":
@@ -383,17 +425,23 @@ def _analyze_reduce(
             else None,
         }
         analyze_reduce_column_args = {"stats_list": column_stats_list} | value_protection_args
+        # federation-wide allowed value names for this column (None unless provided and categorical-like)
+        column_allowed_values = allowed_value_names.get(column)
 
         match encoding_type:
             case ModelEncodingType.tabular_categorical:
-                stats_col = analyze_reduce_categorical(**analyze_reduce_column_args)
+                stats_col = analyze_reduce_categorical(
+                    **analyze_reduce_column_args, allowed_values=column_allowed_values
+                )
             case (
                 ModelEncodingType.tabular_numeric_auto
                 | ModelEncodingType.tabular_numeric_digit
                 | ModelEncodingType.tabular_numeric_discrete
                 | ModelEncodingType.tabular_numeric_binned
             ):
-                stats_col = analyze_reduce_numeric(**analyze_reduce_column_args, encoding_type=encoding_type)
+                stats_col = analyze_reduce_numeric(
+                    **analyze_reduce_column_args, encoding_type=encoding_type, allowed_values=column_allowed_values
+                )
             case ModelEncodingType.tabular_datetime:
                 stats_col = analyze_reduce_datetime(**analyze_reduce_column_args)
             case ModelEncodingType.tabular_datetime_relative:
@@ -406,7 +454,7 @@ def _analyze_reduce(
                 stats_col = analyze_reduce_text(**analyze_reduce_column_args)
             case ModelEncodingType.language_categorical:
                 stats_col = analyze_reduce_text(**analyze_reduce_column_args) | analyze_reduce_language_categorical(
-                    **analyze_reduce_column_args
+                    **analyze_reduce_column_args, allowed_values=column_allowed_values
                 )
             case ModelEncodingType.language_numeric:
                 stats_col = analyze_reduce_text(**analyze_reduce_column_args) | analyze_reduce_language_numeric(
@@ -509,6 +557,95 @@ def _analyze_reduce(
     # persist statistics
     _LOG.info(f"write statistics to `{out_stats.path}`")
     out_stats.write(stats)
+
+
+def analyze_reduce(
+    *,
+    value_protection: bool = True,
+    differential_privacy: DifferentialPrivacyConfig | None = None,
+    workspace_dir: str | Path = "engine-ws",
+    aggregated_tgt_stats: list[dict] | None = None,
+    aggregated_ctx_stats: list[dict] | None = None,
+    update_progress: ProgressCallback | None = None,
+) -> None:
+    """
+    Reduces the partial column-level statistics produced by `analyze_partial()` into the final, privacy-safe
+    `stats.json` files, applying rare / extreme value protection. This is the second half of `analyze()`.
+
+    It reads the local `ModelStore/tgt-stats/part.*.json` (and, if context is present,
+    `ModelStore/ctx-stats/part.*.json`) files, reduces them, writes `stats.json`, and finally removes the
+    `part.*.json` files (which always contain non-protected values), regardless of which path was taken.
+
+    Args:
+        value_protection: Whether to enable value protection for rare values.
+        differential_privacy: Optional differential privacy configuration.
+        workspace_dir: Path to workspace directory containing the partial statistics.
+        aggregated_tgt_stats: Optional federation-wide aggregated target stats returned by an external
+            coordinator. This is the union of *column and value names only* across the whole federation; it
+            carries no counts (or any other quantities) and must include this node's own value names. It is
+            used solely to align this node's categorical-like vocabulary to the federation-wide value names;
+            value protection is always applied on this node's local counts. When `None`, reduction is purely
+            local (identical to `analyze()`).
+        aggregated_ctx_stats: Same as `aggregated_tgt_stats`, but for the context data.
+        update_progress: Optional callback to update progress during reduction.
+    """
+
+    _LOG.info("ANALYZE_REDUCE started")
+    t0 = time.time()
+    with ProgressCallbackWrapper(update_progress) as progress:
+        # build paths based on workspace dir
+        workspace_dir = ensure_workspace_dir(workspace_dir)
+        workspace = Workspace(workspace_dir)
+
+        tgt_keys = workspace.tgt_keys.read()
+        ctx_keys = workspace.ctx_keys.read()
+
+        has_context = workspace.ctx_data_path.exists()
+
+        tgt_encoding_types = workspace.tgt_encoding_types.read()
+        ctx_encoding_types = workspace.ctx_encoding_types.read()
+
+        # combine partition statistics
+        _LOG.info("combine partition statistics")
+        # no need to split epsilon because training will have max_epsilon - value_protection_epsilon as the budget
+        value_protection_epsilon = (
+            differential_privacy.value_protection_epsilon if value_protection and differential_privacy else None
+        )
+        if has_context:
+            dp_tgt_ratio = float(len(tgt_encoding_types) + 1) / (len(tgt_encoding_types) + len(ctx_encoding_types) + 1)
+            dp_ctx_ratio = float(len(ctx_encoding_types)) / (len(tgt_encoding_types) + len(ctx_encoding_types) + 1)
+        _analyze_reduce(
+            all_stats=workspace.tgt_all_stats,
+            out_stats=workspace.tgt_stats,
+            keys=tgt_keys,
+            mode="tgt",
+            value_protection=value_protection,
+            # further split epsilon and delta if context is present
+            value_protection_epsilon=value_protection_epsilon * dp_tgt_ratio
+            if value_protection_epsilon is not None and has_context
+            else value_protection_epsilon,
+            aggregated_stats=aggregated_tgt_stats,
+        )
+        if has_context:
+            _analyze_reduce(
+                all_stats=workspace.ctx_all_stats,
+                out_stats=workspace.ctx_stats,
+                keys=ctx_keys,
+                mode="ctx",
+                value_protection=value_protection,
+                value_protection_epsilon=value_protection_epsilon * dp_ctx_ratio
+                if value_protection_epsilon is not None and has_context
+                else value_protection_epsilon,
+                aggregated_stats=aggregated_ctx_stats,
+            )
+        progress.update(completed=1, total=1)
+
+        # clean up partition-wise stats files, as they contain non-protected values
+        for file in workspace.tgt_all_stats.fetch_all():
+            file.unlink()
+        for file in workspace.ctx_all_stats.fetch_all():
+            file.unlink()
+    _LOG.info(f"ANALYZE_REDUCE finished in {time.time() - t0:.2f}s")
 
 
 def _analyze_col(

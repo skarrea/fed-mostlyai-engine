@@ -630,6 +630,57 @@ class TestNumericDiscrete:
         assert NUMERIC_DISCRETE_UNKNOWN_TOKEN in stats["codes"]
         assert all([str(v) in stats["codes"].keys() for v in values1])
 
+    def _discrete_stats_pair(self):
+        values1 = pd.Series([1, 2, 3, 4], name="x")
+        rkeys1 = pd.Series(range(len(values1)), name="id")
+        stats1 = analyze_numeric(values1, rkeys1, encoding_type=ModelEncodingType.tabular_numeric_discrete)
+        values2 = pd.Series([0] * 100, name="x")
+        rkeys2 = pd.Series(range(len(values2)), name="id")
+        stats2 = analyze_numeric(values2, rkeys2, encoding_type=ModelEncodingType.tabular_numeric_discrete)
+        return stats1, stats2
+
+    def test_allowed_values_none_is_identity(self):
+        stats1, stats2 = self._discrete_stats_pair()
+        without = analyze_reduce_numeric(
+            [stats1, stats2], value_protection=False, encoding_type=ModelEncodingType.tabular_numeric_discrete
+        )
+        with_none = analyze_reduce_numeric(
+            [stats1, stats2],
+            value_protection=False,
+            encoding_type=ModelEncodingType.tabular_numeric_discrete,
+            allowed_values=None,
+        )
+        assert without == with_none
+
+    def test_allowed_values_superset_adds_missing_names(self):
+        stats1, stats2 = self._discrete_stats_pair()
+        # "9" is not present locally but is part of the federation-wide vocabulary
+        allowed = ["0", "1", "2", "3", "4", "9"]
+        stats = analyze_reduce_numeric(
+            [stats1, stats2],
+            value_protection=False,
+            encoding_type=ModelEncodingType.tabular_numeric_discrete,
+            allowed_values=allowed,
+        )
+        codes = stats["codes"]
+        assert NUMERIC_DISCRETE_UNKNOWN_TOKEN in codes
+        for name in allowed:
+            assert name in codes
+
+    def test_allowed_values_subset_drops_local_names(self):
+        stats1, stats2 = self._discrete_stats_pair()
+        # only "0" and "1" are allowed; local "2"/"3"/"4" are dropped
+        allowed = ["0", "1"]
+        stats = analyze_reduce_numeric(
+            [stats1, stats2],
+            value_protection=False,
+            encoding_type=ModelEncodingType.tabular_numeric_discrete,
+            allowed_values=allowed,
+        )
+        codes = stats["codes"]
+        assert "0" in codes and "1" in codes
+        assert "2" not in codes and "3" not in codes and "4" not in codes
+
     def test_encode_decode(self):
         stats = {
             "encoding_type": ModelEncodingType.tabular_numeric_discrete.value,

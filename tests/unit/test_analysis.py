@@ -21,8 +21,12 @@ from mostlyai.engine.analysis import (
     _analyze_partition,
     _analyze_reduce_seq_len,
     _analyze_seq_len,
+    analyze,
+    analyze_partial,
+    analyze_reduce,
 )
 from mostlyai.engine.domain import ModelEncodingType
+from mostlyai.engine.splitting import split
 
 
 def test_analyze_cnt(tmp_path):
@@ -150,3 +154,96 @@ class TestAnalyzeCol:
             "has_nan": False,
             "seq_len": {"cnt_lengths": {0: 2, 1: 2, 3: 1}},
         }
+
+
+def _split_tgt_flat(workspace_dir):
+    tgt_df = pd.DataFrame(
+        {
+            "id": list(range(100)),
+            "cat": ["A", "B"] * 50,
+        }
+    )
+    split(
+        tgt_data=tgt_df,
+        tgt_encoding_types={"cat": ModelEncodingType.tabular_categorical},
+        tgt_primary_key="id",
+        workspace_dir=workspace_dir,
+    )
+
+
+def test_analyze_partial_then_reduce_parity(tmp_path):
+    # build two identical workspaces from the same data
+    ws_a = tmp_path / "ws_a"
+    ws_b = tmp_path / "ws_b"
+    _split_tgt_flat(ws_a)
+    _split_tgt_flat(ws_b)
+
+    # path A: analyze() directly
+    analyze(workspace_dir=ws_a)
+    stats_a = read_json(ws_a / "ModelStore" / "tgt-stats" / "stats.json")
+
+    # path B: analyze_partial() then analyze_reduce() (no aggregate)
+    analyze_partial(workspace_dir=ws_b)
+    analyze_reduce(workspace_dir=ws_b)
+    stats_b = read_json(ws_b / "ModelStore" / "tgt-stats" / "stats.json")
+
+    assert stats_a == stats_b
+
+
+def test_analyze_partial_return_matches_part_files(tmp_path):
+    ws = tmp_path / "ws"
+    _split_tgt_flat(ws)
+    partials = analyze_partial(workspace_dir=ws)
+    assert set(partials.keys()) == {"tgt", "ctx"}
+    assert partials["ctx"] == []
+    assert len(partials["tgt"]) >= 1
+    # returned dicts must equal the content written to the part.*.json files
+    # (normalize via a JSON round-trip, since JSON serializes int dict keys as strings)
+    import json
+
+    part_dir = ws / "ModelStore" / "tgt-stats"
+    on_disk = [read_json(p) for p in sorted(part_dir.glob("part.*.json"))]
+    in_memory = json.loads(json.dumps(partials["tgt"]))
+    assert in_memory == on_disk
+
+
+def test_analyze_reduce_local_cleans_up_part_files(tmp_path):
+    ws = tmp_path / "ws"
+    _split_tgt_flat(ws)
+    analyze_partial(workspace_dir=ws)
+    part_dir = ws / "ModelStore" / "tgt-stats"
+    assert list(part_dir.glob("part.*.json"))  # present before reduce
+    analyze_reduce(workspace_dir=ws)
+    assert not list(part_dir.glob("part.*.json"))  # removed after reduce
+
+
+def test_analyze_reduce_federated_superset_adds_names(tmp_path):
+    ws = tmp_path / "ws"
+    _split_tgt_flat(ws)
+    partials = analyze_partial(workspace_dir=ws)
+    # federation-wide names: local A/B plus an extra "C" not seen locally (minimal: names only, no counts)
+    aggregated = [
+        {"columns": {"cat": {"encoding_type": ModelEncodingType.tabular_categorical, "cnt_values": {"A": 0, "B": 0, "C": 0}}}}
+    ]
+    # include this node's own partials in the aggregate, as required
+    aggregated += partials["tgt"]
+    analyze_reduce(workspace_dir=ws, value_protection=False, aggregated_tgt_stats=aggregated)
+    stats = read_json(ws / "ModelStore" / "tgt-stats" / "stats.json")
+    codes = stats["columns"]["cat"]["codes"]
+    assert "A" in codes and "B" in codes
+    assert "C" in codes  # federation-wide name added with zero local count
+
+
+def test_analyze_reduce_federated_subset_drops_names(tmp_path):
+    ws = tmp_path / "ws"
+    _split_tgt_flat(ws)
+    analyze_partial(workspace_dir=ws)
+    # only "A" is part of the federation-wide vocabulary; local "B" must be dropped
+    aggregated = [
+        {"columns": {"cat": {"encoding_type": ModelEncodingType.tabular_categorical, "cnt_values": {"A": 0}}}}
+    ]
+    analyze_reduce(workspace_dir=ws, value_protection=False, aggregated_tgt_stats=aggregated)
+    stats = read_json(ws / "ModelStore" / "tgt-stats" / "stats.json")
+    codes = stats["columns"]["cat"]["codes"]
+    assert "A" in codes
+    assert "B" not in codes
