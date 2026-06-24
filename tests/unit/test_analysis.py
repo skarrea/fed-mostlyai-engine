@@ -157,15 +157,27 @@ class TestAnalyzeCol:
 
 
 def _split_tgt_flat(workspace_dir):
+    cat = ["A", "B", "C"] * 50
+    float = [10.0, 20.0, 30.0, 40.0] * 50
+    float2 = [10.0, 20.0, 30.0, 50,0] * 50
     tgt_df = pd.DataFrame(
         {
             "id": list(range(100)),
-            "cat": ["A", "B"] * 50,
+            "cat": cat[:100],
+            "cat2": ["A", "B"] * 50,
+            "int": [10, 20] * 50,
+            "float": float[:100],
+            "float2": float2[:100],
+
         }
     )
     split(
         tgt_data=tgt_df,
-        tgt_encoding_types={"cat": ModelEncodingType.tabular_categorical},
+        tgt_encoding_types={"cat": ModelEncodingType.tabular_categorical,
+                            "cat2": ModelEncodingType.tabular_categorical,
+                            "int": ModelEncodingType.tabular_numeric_discrete,
+                            "float": ModelEncodingType.tabular_numeric_binned,
+                            "float2": ModelEncodingType.tabular_numeric_digit},
         tgt_primary_key="id",
         workspace_dir=workspace_dir,
     )
@@ -183,7 +195,7 @@ def test_analyze_partial_then_reduce_parity(tmp_path):
     stats_a = read_json(ws_a / "ModelStore" / "tgt-stats" / "stats.json")
 
     # path B: analyze_partial() then analyze_reduce() (no aggregate)
-    analyze_partial(workspace_dir=ws_b)
+    json_result = analyze_partial(workspace_dir=ws_b)
     analyze_reduce(workspace_dir=ws_b)
     stats_b = read_json(ws_b / "ModelStore" / "tgt-stats" / "stats.json")
 

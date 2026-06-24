@@ -126,7 +126,7 @@ class TestValidateReturnStructure:
         assert metrics["val_loss"] > 0.0
 
     def test_training_metrics_reflect_validate_only_mode(self, prepared_workspace, trained_federated_state):
-        """Validate-only mode should have zero epoch/steps/samples and no trn_loss."""
+        """Validate-only mode should have zero epoch/steps and no trn_loss, but samples reflects the validation set size."""
         result = validate(
             workspace_dir=prepared_workspace,
             model="MOSTLY_AI/Small",
@@ -137,7 +137,7 @@ class TestValidateReturnStructure:
         assert metrics["trn_loss"] is None
         assert metrics["epoch"] == 0.0
         assert metrics["steps"] == 0
-        assert metrics["samples"] == 0
+        assert metrics["samples"] > 0
 
 
 # ---------------------------------------------------------------------------
