@@ -196,7 +196,7 @@ def test_analyze_partial_then_reduce_parity(tmp_path):
     stats_a = read_json(ws_a / "ModelStore" / "tgt-stats" / "stats.json")
 
     # path B: analyze_partial() then analyze_reduce() (no aggregate)
-    json_result = analyze_partial(workspace_dir=ws_b)
+    analyze_partial(workspace_dir=ws_b)
     analyze_reduce(workspace_dir=ws_b)
     stats_b = read_json(ws_b / "ModelStore" / "tgt-stats" / "stats.json")
 
