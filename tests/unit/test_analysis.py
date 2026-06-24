@@ -159,7 +159,7 @@ class TestAnalyzeCol:
 def _split_tgt_flat(workspace_dir):
     cat = ["A", "B", "C"] * 50
     float = [10.0, 20.0, 30.0, 40.0] * 50
-    float2 = [10.0, 20.0, 30.0, 50,0] * 50
+    float2 = [10.0, 20.0, 30.0, 50, 0] * 50
     tgt_df = pd.DataFrame(
         {
             "id": list(range(100)),
@@ -168,16 +168,17 @@ def _split_tgt_flat(workspace_dir):
             "int": [10, 20] * 50,
             "float": float[:100],
             "float2": float2[:100],
-
         }
     )
     split(
         tgt_data=tgt_df,
-        tgt_encoding_types={"cat": ModelEncodingType.tabular_categorical,
-                            "cat2": ModelEncodingType.tabular_categorical,
-                            "int": ModelEncodingType.tabular_numeric_discrete,
-                            "float": ModelEncodingType.tabular_numeric_binned,
-                            "float2": ModelEncodingType.tabular_numeric_digit},
+        tgt_encoding_types={
+            "cat": ModelEncodingType.tabular_categorical,
+            "cat2": ModelEncodingType.tabular_categorical,
+            "int": ModelEncodingType.tabular_numeric_discrete,
+            "float": ModelEncodingType.tabular_numeric_binned,
+            "float2": ModelEncodingType.tabular_numeric_digit,
+        },
         tgt_primary_key="id",
         workspace_dir=workspace_dir,
     )
@@ -235,7 +236,11 @@ def test_analyze_reduce_federated_superset_adds_names(tmp_path):
     partials = analyze_partial(workspace_dir=ws)
     # federation-wide names: local A/B plus an extra "C" not seen locally (minimal: names only, no counts)
     aggregated = [
-        {"columns": {"cat": {"encoding_type": ModelEncodingType.tabular_categorical, "cnt_values": {"A": 0, "B": 0, "C": 0}}}}
+        {
+            "columns": {
+                "cat": {"encoding_type": ModelEncodingType.tabular_categorical, "cnt_values": {"A": 0, "B": 0, "C": 0}}
+            }
+        }
     ]
     # include this node's own partials in the aggregate, as required
     aggregated += partials["tgt"]

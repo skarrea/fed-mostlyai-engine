@@ -63,17 +63,13 @@ class TestLanguageCategoricalAnalyzeReduce:
     def test_allowed_values_none_is_identity(self, stats_list):
         stats1, stats2 = stats_list
         without = analyze_reduce_language_categorical([stats1, stats2], value_protection=False)
-        with_none = analyze_reduce_language_categorical(
-            [stats1, stats2], value_protection=False, allowed_values=None
-        )
+        with_none = analyze_reduce_language_categorical([stats1, stats2], value_protection=False, allowed_values=None)
         assert without == with_none
 
     def test_allowed_values_superset_adds_missing_names(self, stats_list):
         stats1, stats2 = stats_list
         allowed = ["male", "female", "secret1", "secret2", "other"]
-        stats = analyze_reduce_language_categorical(
-            [stats1, stats2], value_protection=False, allowed_values=allowed
-        )
+        stats = analyze_reduce_language_categorical([stats1, stats2], value_protection=False, allowed_values=allowed)
         # has_nan -> None is inserted at index 1 after the UNKNOWN token
         assert stats["categories"][0] == CATEGORICAL_UNKNOWN_TOKEN
         assert stats["categories"][1] is None
@@ -83,9 +79,7 @@ class TestLanguageCategoricalAnalyzeReduce:
     def test_allowed_values_subset_drops_local_names(self, stats_list):
         stats1, stats2 = stats_list
         allowed = ["male", "female"]
-        stats = analyze_reduce_language_categorical(
-            [stats1, stats2], value_protection=False, allowed_values=allowed
-        )
+        stats = analyze_reduce_language_categorical([stats1, stats2], value_protection=False, allowed_values=allowed)
         categories = [c for c in stats["categories"] if c is not None]
         assert CATEGORICAL_UNKNOWN_TOKEN in categories
         assert "male" in categories and "female" in categories

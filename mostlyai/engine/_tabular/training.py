@@ -708,8 +708,11 @@ class Trainer:
         self.val_batch_size = max(1, min(self.batch_size, self.val_cnt))
         self.val_steps = max(1, self.val_cnt // self.val_batch_size)
         if self.initial_lr is None:
-            self.initial_lr = _learn_rate_heuristic(self.trn_batch_size) if (self.fixed_learning_rate
-                                                                             is None) else self.fixed_learning_rate
+            self.initial_lr = (
+                _learn_rate_heuristic(self.trn_batch_size)
+                if (self.fixed_learning_rate is None)
+                else self.fixed_learning_rate
+            )
         # halve val_batch_size last (after val_steps is computed) for sequential models;
         # this matches pre-refactor order.
         if self.is_sequential:
@@ -807,11 +810,12 @@ class Trainer:
         # Trainer.train() when applicable. initial_lr stays at the heuristic value unless
         # explicitly overridden by a resumed progress message there.
         self.early_stopper = EarlyStopper(val_loss_patience=4)
-        self.optimizer = torch.optim.AdamW(params=self.model.parameters(),
-                                           lr=self.initial_lr if self.fixed_learning_rate is None else self.fixed_learning_rate)
+        self.optimizer = torch.optim.AdamW(
+            params=self.model.parameters(),
+            lr=self.initial_lr if self.fixed_learning_rate is None else self.fixed_learning_rate,
+        )
         if self.fixed_learning_rate:
-            self.lr_scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer=self.optimizer,
-                                                                    factor=1.0)
+            self.lr_scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer=self.optimizer, factor=1.0)
         else:
             self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer=self.optimizer,

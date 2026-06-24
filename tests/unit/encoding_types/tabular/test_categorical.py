@@ -129,9 +129,7 @@ class TestCategoricalAnalyzeReduce:
         stats1, stats2 = stats_list
         # "other" is not present locally but is part of the federation-wide vocabulary
         allowed = ["male", "female", "secret1", "secret2", "other"]
-        stats = analyze_reduce_categorical(
-            [stats1, stats2], value_protection=False, allowed_values=allowed
-        )
+        stats = analyze_reduce_categorical([stats1, stats2], value_protection=False, allowed_values=allowed)
         assert stats["codes"] == {
             CATEGORICAL_UNKNOWN_TOKEN: 0,
             "female": 1,
@@ -146,9 +144,7 @@ class TestCategoricalAnalyzeReduce:
         stats1, stats2 = stats_list
         # only "male" and "female" are allowed; local "secret1"/"secret2" are dropped
         allowed = ["male", "female"]
-        stats = analyze_reduce_categorical(
-            [stats1, stats2], value_protection=False, allowed_values=allowed
-        )
+        stats = analyze_reduce_categorical([stats1, stats2], value_protection=False, allowed_values=allowed)
         assert stats["codes"] == {
             CATEGORICAL_UNKNOWN_TOKEN: 0,
             "female": 1,
