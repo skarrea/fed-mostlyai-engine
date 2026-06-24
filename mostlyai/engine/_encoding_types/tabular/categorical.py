@@ -64,12 +64,19 @@ def analyze_reduce_categorical(
     stats_list: list[dict],
     value_protection: bool = True,
     value_protection_epsilon: float | None = None,
+    allowed_values: list[str] | None = None,
 ) -> dict:
     # sum up all counts for each categorical value
     cnt_values: dict[str, int] = {}
     for item in stats_list:
         for value, count in item["cnt_values"].items():
             cnt_values[value] = cnt_values.get(value, 0) + count
+    # align the local vocabulary to the federation-wide allowed value names, if provided
+    if allowed_values is not None:
+        allowed_set = set(allowed_values)
+        for name in allowed_values:
+            cnt_values.setdefault(name, 0)
+        cnt_values = {k: v for k, v in cnt_values.items() if k in allowed_set}
     cnt_values = dict(sorted(cnt_values.items()))
     known_categories = list(cnt_values.keys())
     if value_protection:

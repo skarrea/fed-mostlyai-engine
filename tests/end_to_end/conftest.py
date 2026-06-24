@@ -1,4 +1,5 @@
 # Copyright 2025 MOSTLY AI
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -74,3 +75,57 @@ class MockData:
         # if seq_len is 3, it will populate a sequence ["0", "1", "2"] and then explode the list to 3 rows
         self.df[name] = self.df["seq_len"].apply(lambda x: [str(i) for i in range(x)])
         self.df = self.df.explode(name).drop(columns="seq_len").reset_index(drop=True)
+
+
+def pytest_sessionstart(session):
+    """Write a top-level heading to $GITHUB_STEP_SUMMARY when the test session starts."""
+    import datetime
+    import os
+
+    step_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not step_summary_path:
+        return
+
+    timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    header = f"# End-to-End Test Results\n\n_Generated: {timestamp}_\n\n"
+    with open(step_summary_path, "a", encoding="utf-8") as fh:
+        fh.write(header)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Append a pass/fail count table to $GITHUB_STEP_SUMMARY and test-output/summary.md."""
+    import os
+    from pathlib import Path
+
+    stats = terminalreporter.stats
+    passed = len(stats.get("passed", []))
+    failed = len(stats.get("failed", []))
+    errors = len(stats.get("error", []))
+    skipped = len(stats.get("skipped", []))
+    total = passed + failed + errors + skipped
+
+    overall = "✅ All passed" if (failed + errors) == 0 else f"❌ {failed + errors} test(s) failed"
+
+    lines = [
+        "## Test Summary",
+        "",
+        "| | Count |",
+        "| :--- | ---: |",
+        f"| ✅ Passed | {passed} |",
+        f"| ❌ Failed | {failed + errors} |",
+        f"| ⏭ Skipped | {skipped} |",
+        f"| **Total** | **{total}** |",
+        f"| **Overall** | **{overall}** |",
+        "",
+    ]
+    markdown = "\n".join(lines) + "\n"
+
+    step_summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary_path:
+        with open(step_summary_path, "a", encoding="utf-8") as fh:
+            fh.write(markdown)
+
+    output_dir = Path("test-output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(output_dir / "summary.md", "a", encoding="utf-8") as fh:
+        fh.write(markdown)

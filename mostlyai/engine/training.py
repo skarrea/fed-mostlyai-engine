@@ -1,4 +1,5 @@
 # Copyright 2025 MOSTLY AI
+# Copyright 2026 Clinical Data Science Maastricht and Bendik Skarre Abrahamsen
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,7 +39,10 @@ def train(
     workspace_dir: str | Path = "engine-ws",
     update_progress: ProgressCallback | None = None,
     upload_model_data_callback: Callable | None = None,
-) -> None:
+    federated_epochs: int | None = None,
+    federated_state: dict | None = None,
+    fixed_learning_rate: float | None = None,
+) -> dict | None:
     """
     Trains a model with optional early stopping and differential privacy.
 
@@ -63,13 +67,19 @@ def train(
         workspace_dir: Directory path for workspace. Training outputs are stored in ModelStore subdirectory.
         update_progress: Callback function to report training progress.
         upload_model_data_callback: Callback function to upload model data during training.
+        federated_epochs: If specified, train for exactly this number of epochs and return model weights. Overrides max_epochs.
+        federated_state: Optional federated state dictionary containing model weights, optimizer state, and DP accountant state for continuing federated training.
+        fixed_learning_rate: Fixed learning rate for training. If specified, overrides learning rate schedule.
+
+    Returns:
+        dict | None: Comprehensive federated state dictionary if federated_epochs is specified, otherwise None.
     """
     model_type = resolve_model_type(workspace_dir)
     if model_type == ModelType.tabular:
         from mostlyai.engine._tabular.training import train as train_tabular
 
         args = inspect.signature(train_tabular).parameters
-        train_tabular(
+        result = train_tabular(
             model=model if model else args["model"].default,
             workspace_dir=workspace_dir,
             max_training_time=max_training_time if max_training_time else args["max_training_time"].default,
@@ -83,7 +93,11 @@ def train(
             model_state_strategy=model_state_strategy,
             device=device,
             max_sequence_window=max_sequence_window if max_sequence_window else args["max_sequence_window"].default,
+            federated_epochs=federated_epochs,
+            federated_state=federated_state,
+            fixed_learning_rate=fixed_learning_rate,
         )
+        return result
     else:
         from mostlyai.engine._language.training import train as train_language
 
@@ -91,7 +105,7 @@ def train(
             raise ValueError("max_sequence_window is not supported for language models")
 
         args = inspect.signature(train_language).parameters
-        train_language(
+        result = train_language(
             model=model if model else args["model"].default,
             workspace_dir=workspace_dir,
             max_training_time=max_training_time if max_training_time else args["max_training_time"].default,
@@ -104,4 +118,131 @@ def train(
             upload_model_data_callback=upload_model_data_callback,
             model_state_strategy=model_state_strategy,
             device=device,
+            federated_epochs=federated_epochs,
+            federated_state=federated_state,
         )
+        return result
+
+
+def validate(
+    *,
+    model: str | None = None,
+    batch_size: int | None = None,
+    max_sequence_window: int | None = None,
+    enable_flexible_generation: bool = True,
+    differential_privacy: DifferentialPrivacyConfig | dict | None = None,
+    device: torch.device | str | None = None,
+    workspace_dir: str | Path = "engine-ws",
+    update_progress: ProgressCallback | None = None,
+    federated_state: dict | None = None,
+) -> dict:
+    """
+    Validate a model against the workspace's validation data, using coordinator-supplied weights.
+
+    This is the federated counterpart to `train()`. It loads model weights from
+    ``federated_state["model_weights"]``, computes the local validation loss, and returns
+    a federated state dict containing both the (unchanged) weights and the new ``val_loss``.
+
+    No training is performed and no checkpoints are written. The workspace must contain
+    ``tgt_stats``, ``ctx_stats``, and encoded validation parquet files — nothing else is required.
+
+    Args:
+        model: The identifier of the model architecture. Defaults to MOSTLY_AI/Medium.
+        batch_size: Per-device batch size for validation. If None, determined automatically.
+        max_sequence_window: Maximum sequence window for tabular sequential models.
+        enable_flexible_generation: Whether to enable flexible order generation. Defaults to True.
+        differential_privacy: DP configuration, used to correctly reconstruct the model architecture.
+        device: Device to run validation on ('cuda' or 'cpu'). Defaults to 'cuda' if available.
+        workspace_dir: Directory containing the prepared workspace (stats + encoded val data).
+        update_progress: Callback function to report progress.
+        federated_state: Dict containing model weights to evaluate. Must include 'model_weights'.
+
+    Returns:
+        dict: Federated state dict with ``model_weights`` (unchanged) and ``training_metrics``
+            containing ``val_loss`` reflecting the local validation loss.
+
+    Raises:
+        ValueError: If ``federated_state`` is None or missing the ``model_weights`` key.
+        NotImplementedError: If the workspace contains a language model.
+    """
+    if federated_state is None or "model_weights" not in federated_state:
+        raise ValueError(
+            "validate() requires a federated_state dict containing 'model_weights'. "
+            "Obtain model weights from a prior train() call with federated_epochs set."
+        )
+    model_type = resolve_model_type(workspace_dir)
+    if model_type == ModelType.tabular:
+        from mostlyai.engine._tabular.training import train as train_tabular
+
+        args = inspect.signature(train_tabular).parameters
+        return train_tabular(
+            model=model if model is not None else args["model"].default,
+            workspace_dir=workspace_dir,
+            batch_size=batch_size,
+            enable_flexible_generation=enable_flexible_generation,
+            differential_privacy=differential_privacy,
+            update_progress=update_progress,
+            device=device,
+            max_sequence_window=max_sequence_window
+            if max_sequence_window is not None
+            else args["max_sequence_window"].default,
+            federated_state=federated_state,
+            validate_only=True,
+        )
+    else:
+        raise NotImplementedError("validate() is currently only supported for tabular workspaces")
+
+
+def build_model(
+    *,
+    model: str | None = None,
+    workspace_dir: str | Path = "engine-ws",
+    device: torch.device | str | None = None,
+    differential_privacy: DifferentialPrivacyConfig | dict | None = None,
+    enable_flexible_generation: bool = True,
+    max_sequence_window: int | None = None,
+) -> dict:
+    """Build a model architecture and return its initialized weights.
+
+    Constructs the model architecture only - no training, validation, dataloaders,
+    optimizer or DP wiring. Weights use PyTorch-default (data-independent)
+    initialization, so federated nodes that seed identically obtain identical
+    initial weights of the same shape. Seeding must be done externally by the caller
+    (e.g. via ``set_random_state``) before this call.
+
+    Only ``tgt_stats`` and ``ctx_stats`` need to be present in ``workspace_dir``;
+    no training/validation data is required.
+
+    Args:
+        model: Model identifier. Defaults to MOSTLY_AI/Medium for tabular.
+        workspace_dir: Path to workspace containing tgt_stats and ctx_stats.
+        device: Device for model initialization.
+        differential_privacy: DP config (affects model architecture).
+        enable_flexible_generation: Column order flexibility.
+        max_sequence_window: For sequential models.
+
+    Returns:
+        dict: Contains 'model_weights' (state dict, same format as the federated
+            state produced by ``train()``), 'training_metrics' and 'model_configs'.
+
+    Raises:
+        ValueError: If workspace lacks required stats files.
+        NotImplementedError: If the workspace contains a language model.
+    """
+    model_type = resolve_model_type(workspace_dir)
+    if model_type == ModelType.tabular:
+        from mostlyai.engine._tabular.training import build_model as build_model_tabular
+
+        args = inspect.signature(build_model_tabular).parameters
+        return build_model_tabular(
+            model=model if model is not None else args["model"].default,
+            workspace_dir=workspace_dir,
+            device=device,
+            differential_privacy=differential_privacy,
+            enable_flexible_generation=enable_flexible_generation,
+            max_sequence_window=max_sequence_window
+            if max_sequence_window is not None
+            else args["max_sequence_window"].default,
+        )
+    else:
+        raise NotImplementedError("build_model() is currently only supported for tabular workspaces")
